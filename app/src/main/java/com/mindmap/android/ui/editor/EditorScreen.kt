@@ -1,18 +1,19 @@
 package com.mindmap.android.ui.editor
 
+import android.content.Intent
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,11 +23,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import com.mindmap.android.model.CrossLink
 import com.mindmap.android.model.MindMap
 import com.mindmap.android.model.MindMapNode
 import com.mindmap.android.utils.FileHelper
 import com.mindmap.android.utils.MindMapLayout
+import java.io.File
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,6 +41,9 @@ fun EditorScreen(
     val context = LocalContext.current
     var mindMap by remember { mutableStateOf<MindMap?>(null) }
     var refreshTrigger by remember { mutableStateOf(0) } // To force redraw
+
+    // UI States
+    var showShareMenu by remember { mutableStateOf(false) }
 
     // Crosslink State
     var isSelectingCrosslinkTarget by remember { mutableStateOf(false) }
@@ -76,7 +82,7 @@ fun EditorScreen(
         }
     }
 
-    // Export Launcher
+    // Export Launcher (Save As)
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/markdown"),
         onResult = { uri ->
@@ -131,6 +137,45 @@ fun EditorScreen(
         }
     }
 
+    // Helper to share MD file
+    fun shareMarkdown() {
+        mindMap?.let { map ->
+            try {
+                val md = FileHelper.exportToMarkdown(map)
+                val fileName = "${map.title.replace(" ", "_")}.md"
+                val file = File(context.cacheDir, fileName)
+                file.writeText(md)
+
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/markdown"
+                    putExtra(Intent.EXTRA_SUBJECT, map.title)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+
+                // Fallback for apps that don't handle text/markdown
+                // Maybe better to use text/plain for maximum compatibility with chat apps?
+                // Request says "md file". Some apps treat text/plain as body text, not file.
+                // Let's stick to text/markdown or text/plain.
+                // Telegram supports files. Whatsapp supports files.
+                // Setting type to "text/plain" often puts content in body.
+                // Setting to "*/*" forces file often.
+                // Let's try text/plain but with stream.
+
+                context.startActivity(Intent.createChooser(intent, "Share Mind Map"))
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     if (mindMap == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
@@ -148,10 +193,29 @@ fun EditorScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        exportLauncher.launch("${mindMap!!.title}.md")
-                    }) {
-                        Icon(Icons.Default.Share, contentDescription = "Export")
+                    Box {
+                        IconButton(onClick = { showShareMenu = true }) {
+                            Icon(Icons.Default.Share, contentDescription = "Share")
+                        }
+                        DropdownMenu(
+                            expanded = showShareMenu,
+                            onDismissRequest = { showShareMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Save as Markdown...") },
+                                onClick = {
+                                    showShareMenu = false
+                                    exportLauncher.launch("${mindMap!!.title}.md")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Share via App...") },
+                                onClick = {
+                                    showShareMenu = false
+                                    shareMarkdown()
+                                }
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
