@@ -26,6 +26,11 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
+    - name: Create gradle.properties
+      run: |
+        echo "android.useAndroidX=true" > gradle.properties
+        echo "android.enableJetifier=true" >> gradle.properties
+
     - name: Build with Gradle
       run: ./gradlew assembleDebug
 
