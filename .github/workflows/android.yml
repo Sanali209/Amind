@@ -2,10 +2,13 @@ name: Android CI
 
 on:
   push:
-    branches: [ "main" ]
+    # Две звездочки означают "любая ветка"
+    branches: [ "**" ]
   pull_request:
-    branches: [ "main" ]
-
+    branches: [ "**" ]
+  # Добавляет кнопку для ручного запуска (на всякий случай)
+  workflow_dispatch: 
+  
 jobs:
   build:
 
