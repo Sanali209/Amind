@@ -266,6 +266,15 @@ fun EditorScreen(
                             onDismissRequest = { showShareMenu = false }
                         ) {
                             DropdownMenuItem(
+                                text = { Text("Rename Map") },
+                                leadingIcon = { Icon(Icons.Default.Edit, "Rename") },
+                                onClick = {
+                                    showShareMenu = false
+                                    renameText = mindMap!!.title
+                                    showRenameDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Save as Markdown...") },
                                 onClick = {
                                     showShareMenu = false
@@ -367,6 +376,14 @@ fun EditorScreen(
                         } else {
                             Toast.makeText(context, "Cannot move to descendant", Toast.LENGTH_SHORT).show()
                         }
+                    }
+                },
+                onToggleCollapse = { nodeId ->
+                    val node = mindMap!!.nodes[nodeId]
+                    if (node != null) {
+                        pushHistory()
+                        node.isCollapsed = !node.isCollapsed
+                        layoutAndSave()
                     }
                 }
             )

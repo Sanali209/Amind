@@ -14,7 +14,8 @@ data class MindMapNode(
     var height: Float = 100f,
     var color: Long = 0xFF000000, // Default Color, will be overridden by layout/theme
     var colorOverride: Long? = null,
-    val tags: MutableList<String> = mutableListOf()
+    val tags: MutableList<String> = mutableListOf(),
+    var isCollapsed: Boolean = false
 )
 
 data class CrossLink(

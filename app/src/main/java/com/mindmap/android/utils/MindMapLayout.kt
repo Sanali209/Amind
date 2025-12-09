@@ -40,19 +40,23 @@ object MindMapLayout {
         var currentAngle = 0.0
         val totalWeight = weights[root.id] ?: 1
 
-        for (childId in root.children) {
-            val child = mindMap.nodes[childId] ?: continue
-            val childWeight = weights[childId] ?: 1
+        if (!root.isCollapsed) {
+            for (childId in root.children) {
+                val child = mindMap.nodes[childId] ?: continue
+                val childWeight = weights[childId] ?: 1
 
-            val sweep = (childWeight.toDouble() / totalWeight) * 2 * Math.PI
-            val midAngle = currentAngle + sweep / 2
+                val sweep = (childWeight.toDouble() / totalWeight) * 2 * Math.PI
+                val midAngle = currentAngle + sweep / 2
 
-            layoutNode(child, mindMap, weights, midAngle, sweep, 1)
+                layoutNode(child, mindMap, weights, midAngle, sweep, 1)
 
-            currentAngle += sweep
+                currentAngle += sweep
+            }
         }
 
         // 3. Third pass: Collision Resolution / Repulsion
+        // Only resolve visible nodes? Or all?
+        // Better to only resolve visible ones to save perf and avoid ghost collisions.
         resolveCollisions(mindMap)
     }
 
@@ -90,7 +94,7 @@ object MindMapLayout {
         mindMap: MindMap,
         weights: MutableMap<String, Int>
     ): Int {
-        if (node.children.isEmpty()) {
+        if (node.isCollapsed || node.children.isEmpty()) {
             weights[node.id] = 1
             return 1
         }
@@ -120,7 +124,7 @@ object MindMapLayout {
         node.x = (cos(angle) * dist).toFloat()
         node.y = (sin(angle) * dist).toFloat()
 
-        if (node.children.isEmpty()) return
+        if (node.isCollapsed || node.children.isEmpty()) return
 
         val totalWeight = weights[node.id] ?: 1
         var currentStartAngle = angle - sweep / 2
@@ -140,15 +144,16 @@ object MindMapLayout {
 
     private fun resolveCollisions(mindMap: MindMap) {
         // Simple iterative repulsion
+        // We should filter for only visible nodes to improve performance and logic
+        val visibleNodes = getVisibleNodes(mindMap)
         val iterations = 50
-        val nodes = mindMap.nodes.values.toList()
 
         for (i in 0 until iterations) {
             var maxMovement = 0f
-            for (n1 in nodes) {
+            for (n1 in visibleNodes) {
                 if (n1.id == mindMap.rootNodeId) continue // Root stays fixed
 
-                for (n2 in nodes) {
+                for (n2 in visibleNodes) {
                     if (n1 == n2) continue
 
                     val dx = n1.x - n2.x
@@ -176,6 +181,25 @@ object MindMapLayout {
                 }
             }
             if (maxMovement < 1f) break // Converged
+        }
+    }
+
+    private fun getVisibleNodes(mindMap: MindMap): List<MindMapNode> {
+        val root = mindMap.nodes[mindMap.rootNodeId] ?: return emptyList()
+        val list = mutableListOf<MindMapNode>()
+        collectVisible(root, mindMap, list)
+        return list
+    }
+
+    private fun collectVisible(node: MindMapNode, mindMap: MindMap, list: MutableList<MindMapNode>) {
+        list.add(node)
+        if (!node.isCollapsed) {
+            for (childId in node.children) {
+                val child = mindMap.nodes[childId]
+                if (child != null) {
+                    collectVisible(child, mindMap, list)
+                }
+            }
         }
     }
 }
