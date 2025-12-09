@@ -10,13 +10,19 @@ data class MindMapNode(
     var parentId: String? = null,
     var x: Float = 0f,
     var y: Float = 0f,
-    var color: Long = 0xFF000000 // Default Color, will be overridden by layout/theme
+    var width: Float = 100f,
+    var height: Float = 100f,
+    var color: Long = 0xFF000000, // Default Color, will be overridden by layout/theme
+    var colorOverride: Long? = null,
+    val tags: MutableList<String> = mutableListOf(),
+    var isCollapsed: Boolean = false
 )
 
 data class CrossLink(
     val id: String = UUID.randomUUID().toString(),
     val startNodeId: String,
-    val endNodeId: String
+    val endNodeId: String,
+    var label: String? = null
 )
 
 data class MindMap(

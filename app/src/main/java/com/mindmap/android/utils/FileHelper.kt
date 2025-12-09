@@ -60,6 +60,38 @@ object FileHelper {
             traverseNodeForMarkdown(root, mindMap, 0, sb)
         }
 
+        // Append Crosslinks section if any
+        if (mindMap.crossLinks.isNotEmpty()) {
+            sb.append("\n## Cross Links\n")
+            mindMap.crossLinks.forEach { link ->
+                val start = mindMap.nodes[link.startNodeId]
+                val end = mindMap.nodes[link.endNodeId]
+                if (start != null && end != null) {
+                    val label = link.label ?: "Link"
+                    // Internal MD links: [Label](#header-slug)
+                    // Since we don't know exactly how the viewer handles anchors for list items,
+                    // we can just describe it textually or try simple anchors if supported.
+                    // For now: "Node A --(label)--> Node B"
+                    sb.append("- ${start.text} --$label--> ${end.text}\n")
+                }
+            }
+        }
+
+        // Append Tags Index
+        val tagsMap = mutableMapOf<String, MutableList<String>>() // Tag -> List of Node Names
+        mindMap.nodes.values.forEach { node ->
+            node.tags.forEach { tag ->
+                tagsMap.getOrPut(tag) { mutableListOf() }.add(node.text)
+            }
+        }
+
+        if (tagsMap.isNotEmpty()) {
+            sb.append("\n## Tags\n")
+            tagsMap.forEach { (tag, nodes) ->
+                sb.append("- **#$tag**: ${nodes.joinToString(", ")}\n")
+            }
+        }
+
         return sb.toString()
     }
 
@@ -71,7 +103,13 @@ object FileHelper {
     ) {
         // Indentation
         repeat(level) { sb.append("  ") }
-        sb.append("- ${node.text}\n")
+        sb.append("- ${node.text}")
+
+        // Tags inline?
+        if (node.tags.isNotEmpty()) {
+            sb.append(" " + node.tags.joinToString(" ") { "#$it" })
+        }
+        sb.append("\n")
 
         // Notes as blockquote or just text under
         if (!node.note.isNullOrBlank()) {
