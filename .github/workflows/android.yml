@@ -2,13 +2,10 @@ name: Android CI
 
 on:
   push:
-    # Две звездочки означают "любая ветка"
-    branches: [ "**" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "**" ]
-  # Добавляет кнопку для ручного запуска (на всякий случай)
-  workflow_dispatch: 
-  
+    branches: [ "main" ]
+
 jobs:
   build:
 
@@ -26,16 +23,11 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Create gradle.properties
-      run: |
-        echo "android.useAndroidX=true" > gradle.properties
-        echo "android.enableJetifier=true" >> gradle.properties
-
     - name: Build with Gradle
       run: ./gradlew assembleDebug
 
     - name: Upload Debug APK
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
         name: app-debug
         path: app/build/outputs/apk/debug/app-debug.apk

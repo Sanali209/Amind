@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.mindmap.android.model.MindMap
+import com.mindmap.android.model.MindMapNode
 import java.io.File
 import java.io.FileReader
 import java.io.FileWriter
