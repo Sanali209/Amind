@@ -34,6 +34,7 @@ import kotlin.math.min
 @Composable
 fun MindMapCanvas(
     mindMap: MindMap,
+    selectedNodeId: String? = null,
     onNodeClick: (String, Offset) -> Unit, // Changed to include Offset
     onNodeLongClick: (String, Offset) -> Unit,
     onBackgroundTap: () -> Unit,
@@ -194,9 +195,9 @@ fun MindMapCanvas(
             val left = nx - nWidth / 2
             val top = ny - nHeight / 2
 
-            // Highlight if target
+            // Highlight if target or selected
             val isHoverTarget = (node.id == hoverTargetId)
-            val borderColor = if (isHoverTarget) Color.Green else Color.Transparent
+            val isSelected = (node.id == selectedNodeId)
 
             // Determine Color
             val nodeColor = if (node.colorOverride != null) {
@@ -213,8 +214,21 @@ fun MindMapCanvas(
                 topLeft = Offset(left, top),
                 size = Size(nWidth, nHeight),
                 cornerRadius = CornerRadius(16f * scale, 16f * scale),
-                style = Stroke(width = if (isHoverTarget) 8f * scale else 5f * scale)
+                style = Stroke(width = 5f * scale)
             )
+
+            // Highlight Selection
+            if (isSelected) {
+                drawRoundRect(
+                    color = Color.Cyan,
+                    topLeft = Offset(left, top),
+                    size = Size(nWidth, nHeight),
+                    cornerRadius = CornerRadius(16f * scale, 16f * scale),
+                    style = Stroke(width = 8f * scale)
+                )
+            }
+
+            // Highlight Hover Target
              if (isHoverTarget) {
                 drawRoundRect(
                     color = Color.Green,

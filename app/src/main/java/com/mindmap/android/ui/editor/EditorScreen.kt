@@ -73,6 +73,10 @@ fun EditorScreen(
     var editTags by remember { mutableStateOf("") }
     var editColor by remember { mutableStateOf<Long?>(null) }
 
+    // Rename Map State
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameText by remember { mutableStateOf("") }
+
     // Context Menu State
     var showMenu by remember { mutableStateOf(false) }
     var menuOffset by remember { mutableStateOf(Offset.Zero) }
@@ -226,7 +230,19 @@ fun EditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(mindMap!!.title) },
+                title = {
+                    Row(
+                        modifier = Modifier.clickable {
+                            renameText = mindMap!!.title
+                            showRenameDialog = true
+                        },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(mindMap!!.title)
+                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Rename", modifier = Modifier.size(16.dp))
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -281,6 +297,7 @@ fun EditorScreen(
         ) {
             MindMapCanvas(
                 mindMap = mindMap!!,
+                selectedNodeId = menuNodeId, // Pass selection state
                 modifier = Modifier.fillMaxSize(),
                 onNodeClick = { nodeId, offset ->
                     // Standard Click now handles Selection OR Menu
@@ -318,6 +335,7 @@ fun EditorScreen(
                     showMenu = false
                     selectedCrossLinkId = null
                     showCrossLinkMenu = false
+                    menuNodeId = null // Clear selection visualization
                 },
                 onCrossLinkClick = { linkId, offset ->
                     selectedCrossLinkId = linkId
@@ -569,6 +587,37 @@ fun EditorScreen(
                     },
                     dismissButton = {
                         TextButton(onClick = { showCrossLinkEditDialog = false }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
+
+            // Rename Dialog
+            if (showRenameDialog) {
+                AlertDialog(
+                    onDismissRequest = { showRenameDialog = false },
+                    title = { Text("Rename Mind Map") },
+                    text = {
+                        OutlinedTextField(
+                            value = renameText,
+                            onValueChange = { renameText = it },
+                            label = { Text("Title") }
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            if (renameText.isNotBlank()) {
+                                mindMap!!.title = renameText
+                                layoutAndSave()
+                            }
+                            showRenameDialog = false
+                        }) {
+                            Text("Save")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showRenameDialog = false }) {
                             Text("Cancel")
                         }
                     }
