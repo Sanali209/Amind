@@ -1,5 +1,7 @@
 package com.mindmap.android
 
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -41,7 +43,15 @@ fun MindMapApp() {
                 onCreateMap = {
                     val newMap = MindMap.createDefault()
                     // Initial layout
-                    MindMapLayout.layout(newMap)
+                    // Need paints for measurement
+                    val textPaint = Paint().apply {
+                         textSize = 40f
+                         typeface = Typeface.DEFAULT_BOLD
+                    }
+                    val tagPaint = Paint().apply {
+                         textSize = 30f
+                    }
+                    MindMapLayout.layout(newMap, textPaint, tagPaint)
                     FileHelper.saveMindMap(context, newMap)
                     navController.navigate("editor/${newMap.id}")
                 }
