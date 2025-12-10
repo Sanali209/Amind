@@ -47,6 +47,71 @@ class FileHelper:
         if os.path.exists(filepath):
             os.remove(filepath)
 
+    @staticmethod
+    def export_to_markdown(mind_map: MindMap) -> str:
+        sb = []
+        sb.append(f"# {mind_map.title}\n\n")
+
+        root = mind_map.nodes.get(mind_map.root_node_id)
+        if root:
+            FileHelper.traverse_node_for_markdown(root, mind_map, 0, sb)
+
+        # Append Crosslinks section if any
+        if mind_map.cross_links:
+            sb.append("\n## Cross Links\n")
+            for link in mind_map.cross_links:
+                start = mind_map.nodes.get(link.start_node_id)
+                end = mind_map.nodes.get(link.end_node_id)
+                if start and end:
+                    label = link.label if link.label else "Link"
+                    sb.append(f"- {start.text} --{label}--> {end.text}")
+                    if link.note:
+                        sb.append(f"\n  > {link.note}")
+                    sb.append("\n")
+
+        # Append Tags Index
+        tags_map = {} # Tag -> List of Node Names
+        for node in mind_map.nodes.values():
+            for tag in node.tags:
+                if tag not in tags_map:
+                    tags_map[tag] = []
+                tags_map[tag].append(node.text)
+
+        if tags_map:
+            sb.append("\n## Tags\n")
+            for tag, nodes in tags_map.items():
+                sb.append(f"- **#{tag}**: {', '.join(nodes)}\n")
+
+        return "".join(sb)
+
+    @staticmethod
+    def traverse_node_for_markdown(node: MindMapNode, mind_map: MindMap, level: int, sb: List[str]):
+        # Indentation
+        indent = "  " * level
+        sb.append(indent)
+
+        # Checkbox logic
+        if node.is_todo:
+            mark = "x" if node.is_checked else " "
+            sb.append(f"- [{mark}] {node.text}")
+        else:
+            sb.append(f"- {node.text}")
+
+        # Tags inline?
+        if node.tags:
+            tags_str = " ".join([f"#{t}" for t in node.tags])
+            sb.append(f" {tags_str}")
+        sb.append("\n")
+
+        # Notes as blockquote or just text under
+        if node.note:
+            sb.append(f"{indent}  > {node.note}\n")
+
+        for child_id in node.children:
+            child = mind_map.nodes.get(child_id)
+            if child:
+                FileHelper.traverse_node_for_markdown(child, mind_map, level + 1, sb)
+
 class MindMapLayout:
     LEVEL_DISTANCE_BASE = 300.0
     MIN_NODE_WIDTH = 100.0

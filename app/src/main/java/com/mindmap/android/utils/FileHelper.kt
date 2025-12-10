@@ -72,7 +72,11 @@ object FileHelper {
                     // Since we don't know exactly how the viewer handles anchors for list items,
                     // we can just describe it textually or try simple anchors if supported.
                     // For now: "Node A --(label)--> Node B"
-                    sb.append("- ${start.text} --$label--> ${end.text}\n")
+                    sb.append("- ${start.text} --$label--> ${end.text}")
+                    if (!link.note.isNullOrBlank()) {
+                         sb.append("\n  > ${link.note}")
+                    }
+                    sb.append("\n")
                 }
             }
         }
@@ -103,7 +107,14 @@ object FileHelper {
     ) {
         // Indentation
         repeat(level) { sb.append("  ") }
-        sb.append("- ${node.text}")
+
+        // Checkbox logic
+        if (node.isTodo) {
+            val mark = if (node.isChecked) "x" else " "
+            sb.append("- [$mark] ${node.text}")
+        } else {
+            sb.append("- ${node.text}")
+        }
 
         // Tags inline?
         if (node.tags.isNotEmpty()) {
