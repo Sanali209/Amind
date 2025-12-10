@@ -284,12 +284,7 @@ fun EditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        text = mindMap!!.title,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
