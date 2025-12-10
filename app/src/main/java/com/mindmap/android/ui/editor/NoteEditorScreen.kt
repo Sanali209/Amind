@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -28,11 +30,6 @@ fun NoteEditorScreen(
     onCancel: () -> Unit
 ) {
     var noteContent by remember { mutableStateOf(initialNote) }
-
-    // Simple Markdown simulation (just text for now, but scalable)
-    // The user requested "markdown editor with all posible marckap futures"
-    // Since we don't have a library, we provide a raw text editor.
-    // Ideally, we would use a library like RichText or similar.
 
     Scaffold(
         topBar = {
@@ -58,7 +55,7 @@ fun NoteEditorScreen(
                 .padding(16.dp)
         ) {
             // Toolbar (Mockup)
-            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState())) {
+            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                 Button(onClick = { noteContent += "**Bold**" }) { Text("B") }
                 Spacer(Modifier.width(8.dp))
                 Button(onClick = { noteContent += "*Italic*" }) { Text("I") }

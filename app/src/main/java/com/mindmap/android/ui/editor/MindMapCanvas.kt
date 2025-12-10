@@ -52,14 +52,8 @@ fun MindMapCanvas(
     var hoverTargetId by remember { mutableStateOf<String?>(null) }
 
     // Cache decoded bitmaps
-    // Key: NodeId, Value: Bitmap
     val bitmapCache = remember { mutableMapOf<String, Bitmap?>() }
 
-    // Validate cache against current mindMap state (simple invalidation)
-    // We can rely on recomposition or explicit invalidation.
-    // Since images are stored as Base64 in nodes, if node.images changes, we need to update.
-    // A simple way is to check if the cached bitmap exists for nodes with images.
-    // For production, a more robust image loader (Coil/Glide) is better, but here we do manual caching.
     LaunchedEffect(mindMap) {
         mindMap.nodes.values.forEach { node ->
             if (node.images.isNotEmpty()) {
@@ -117,6 +111,15 @@ fun MindMapCanvas(
             color = android.graphics.Color.WHITE
             style = Paint.Style.STROKE
             strokeWidth = 3f
+        }
+    }
+
+    // Paint for checkmark (Android Paint)
+    val checkMarkPaint = remember {
+        Paint().apply {
+             color = android.graphics.Color.BLACK
+             style = Paint.Style.STROKE
+             strokeWidth = 4f
         }
     }
 
@@ -199,7 +202,7 @@ fun MindMapCanvas(
         if (root != null) {
             drawNodeTree(
                 this, root, mindMap, centerX, centerY, scale, draggingNodeId, dragOffset, hoverTargetId, selectedNodeId,
-                textPaint, tagPaint, notePaint, collapsePaint, checkboxPaint, bitmapCache
+                textPaint, tagPaint, notePaint, collapsePaint, checkboxPaint, checkMarkPaint, bitmapCache
             )
         }
 
@@ -269,6 +272,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
     notePaint: Paint,
     collapsePaint: Paint,
     checkboxPaint: Paint,
+    checkMarkPaint: Paint,
     bitmapCache: Map<String, Bitmap?>
 ) {
     val isDragging = (node.id == draggingNodeId)
@@ -288,7 +292,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
                         else RainbowColors[abs(node.id.hashCode()) % RainbowColors.size]
             val path = Path().apply { moveTo(nx, ny); cubicTo(nx, ny + (cy - ny) / 2, cx, cy - (cy - ny) / 2, cx, cy) }
             scope.drawPath(path = path, color = color, style = Stroke(width = 5f * scale))
-            drawNodeTree(scope, child, mindMap, centerX, centerY, scale, draggingNodeId, dragOffset, hoverTargetId, selectedNodeId, textPaint, tagPaint, notePaint, collapsePaint, checkboxPaint, bitmapCache)
+            drawNodeTree(scope, child, mindMap, centerX, centerY, scale, draggingNodeId, dragOffset, hoverTargetId, selectedNodeId, textPaint, tagPaint, notePaint, collapsePaint, checkboxPaint, checkMarkPaint, bitmapCache)
         }
     }
 
@@ -352,12 +356,16 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
             canvas.nativeCanvas.drawRect(cbRect, checkboxPaint)
 
             if (node.isChecked) {
-                val p = Path().apply {
+                val p = android.graphics.Path().apply {
                     moveTo(cbX + 5f*scale, cbY + cbSize/2)
                     lineTo(cbX + cbSize/2, cbY + cbSize - 5f*scale)
                     lineTo(cbX + cbSize - 5f*scale, cbY + 5f*scale)
                 }
-                canvas.drawPath(p, Color.Black, style = Stroke(width = 4f*scale))
+
+                checkMarkPaint.strokeWidth = 4f * scale
+                checkMarkPaint.color = android.graphics.Color.BLACK
+
+                canvas.nativeCanvas.drawPath(p, checkMarkPaint)
             }
         }
 
