@@ -562,6 +562,28 @@ fun EditorScreen(
                 )
             }
 
+            if (showCrossLinkEditDialog) {
+                AlertDialog(
+                    onDismissRequest = { showCrossLinkEditDialog = false },
+                    title = { Text("Edit Link Label") },
+                    text = {
+                        OutlinedTextField(value = editCrossLinkLabel, onValueChange = { editCrossLinkLabel = it }, label = { Text("Label") })
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val link = mindMap!!.crossLinks.find { it.id == selectedCrossLinkId }
+                            if (link != null) {
+                                pushHistory()
+                                link.label = editCrossLinkLabel
+                                saveMap()
+                            }
+                            showCrossLinkEditDialog = false
+                        }) { Text("Save") }
+                    },
+                    dismissButton = { TextButton(onClick = { showCrossLinkEditDialog = false }) { Text("Cancel") } }
+                )
+            }
+
             if (showColorPicker) {
                  AlertDialog(
                     onDismissRequest = { showColorPicker = false },

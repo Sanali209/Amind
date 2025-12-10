@@ -441,15 +441,16 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
 
         if (node.children.isNotEmpty()) {
             val indicator = if (node.isCollapsed) "+" else "-"
-            val btnX = nx + nWidth/2 + 10f*scale
+            // Increase button size
+            val btnRadius = 24f * scale
+            val btnX = nx + nWidth/2 + 10f*scale + btnRadius/2 // Adjust position slightly if needed, but relative to edge is fine.
             val btnY = ny
-            val btnRadius = 15f * scale
 
             val paintCircle = android.graphics.Paint().apply { color = android.graphics.Color.DKGRAY; style = android.graphics.Paint.Style.FILL }
             val paintStroke = android.graphics.Paint().apply { color = android.graphics.Color.CYAN; style = android.graphics.Paint.Style.STROKE; strokeWidth = 3f * scale }
             canvas.nativeCanvas.drawCircle(btnX, btnY, btnRadius, paintCircle)
             canvas.nativeCanvas.drawCircle(btnX, btnY, btnRadius, paintStroke)
-            collapsePaint.textSize = 30f * scale
+            collapsePaint.textSize = 35f * scale // Larger text
             val bounds = android.graphics.Rect(); collapsePaint.getTextBounds(indicator, 0, indicator.length, bounds)
             val ty = btnY + bounds.height()/2f
             canvas.nativeCanvas.drawText(indicator, btnX, ty, collapsePaint)
@@ -493,9 +494,15 @@ private fun findNodeAt(mindMap: MindMap, x: Float, y: Float): String? {
 private fun findCollapseButtonAt(mindMap: MindMap, x: Float, y: Float): String? {
     for (node in mindMap.nodes.values) {
         if (node.children.isEmpty() || !isVisible(mindMap, node.id)) continue
-        val btnX = node.x + node.width/2 + 10f
+        // Match drawing logic: btnX = node.x + node.width/2 + 10 + radius/2 ~ but simpler approx is fine
+        // Previous radius was 15, hit 30. New radius 24. Hit 48.
+        // Drawing: btnX = nx + nWidth/2 + 10f*scale + btnRadius/2 (approx 12)
+        // Let's approximate btnX relative to unscaled coordinates (Canvas x/y passed here are unscaled?)
+        // Wait, input x/y are divided by scale in MindMapCanvas.
+        val btnRadius = 24f
+        val btnX = node.x + node.width/2 + 10f + btnRadius/2
         val dist = hypot(x - btnX, y - node.y)
-        if (dist <= 30f) return node.id
+        if (dist <= 50f) return node.id // Increased hit area
     }
     return null
 }

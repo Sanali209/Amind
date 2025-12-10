@@ -26,7 +26,11 @@ object MindMapLayout {
     fun layout(mindMap: MindMap, textPaint: Paint, tagPaint: Paint) {
         val root = mindMap.nodes[mindMap.rootNodeId] ?: return
 
-        // 0. Pre-calculate sizes for all nodes
+        // 0. Pre-calculate sizes for nodes (Optimization: we could only do this for visible nodes,
+        // but weight calculation traverses hidden ones too if we wanted to maintain structure.
+        // However, weights stop at collapsed nodes. So effectively we only need sizes for visible nodes
+        // PLUS nodes that might be involved in layout.
+        // For simplicity and to fix the crash, we iterate all but ensure safe StaticLayout usage).
         mindMap.nodes.values.forEach { node ->
             calculateNodeSize(node, textPaint, tagPaint)
         }
@@ -63,12 +67,25 @@ object MindMapLayout {
     private fun calculateNodeSize(node: MindMapNode, textPaint: Paint, tagPaint: Paint) {
         // Measure Main Text with Wrapping
         val tp = TextPaint(textPaint)
-        val staticLayout = android.text.StaticLayout.Builder.obtain(
-            node.text, 0, node.text.length, tp, MAX_TEXT_WIDTH.toInt()
-        ).build()
 
-        val textWidth = staticLayout.width.toFloat()
-        val textHeight = staticLayout.height.toFloat()
+        val textWidth: Float
+        val textHeight: Float
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+             val staticLayout = android.text.StaticLayout.Builder.obtain(
+                node.text, 0, node.text.length, tp, MAX_TEXT_WIDTH.toInt()
+            ).build()
+            textWidth = staticLayout.width.toFloat()
+            textHeight = staticLayout.height.toFloat()
+        } else {
+            @Suppress("DEPRECATION")
+            val staticLayout = android.text.StaticLayout(
+                node.text, tp, MAX_TEXT_WIDTH.toInt(),
+                android.text.Layout.Alignment.ALIGN_NORMAL, 1f, 0f, false
+            )
+            textWidth = staticLayout.width.toFloat()
+            textHeight = staticLayout.height.toFloat()
+        }
 
         // Measure Tags
         var tagsWidth = 0f
