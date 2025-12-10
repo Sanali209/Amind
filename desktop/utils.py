@@ -1,0 +1,217 @@
+import json
+import os
+import math
+import time
+from typing import Dict, List
+from model import MindMap, MindMapNode
+
+class FileHelper:
+    @staticmethod
+    def save_mind_map(mind_map: MindMap, directory: str):
+        # Update timestamp on save
+        mind_map.last_modified = int(time.time() * 1000)
+
+        filename = f"{mind_map.id}.json"
+        filepath = os.path.join(directory, filename)
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(mind_map.to_dict(), f, indent=2, ensure_ascii=False)
+
+    @staticmethod
+    def load_mind_map(filepath: str) -> MindMap:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return MindMap.from_dict(data)
+
+    @staticmethod
+    def list_mind_maps(directory: str) -> List[MindMap]:
+        if not os.path.exists(directory):
+            return []
+
+        maps = []
+        for filename in os.listdir(directory):
+            if filename.endswith(".json"):
+                try:
+                    filepath = os.path.join(directory, filename)
+                    maps.append(FileHelper.load_mind_map(filepath))
+                except Exception as e:
+                    print(f"Error loading {filename}: {e}")
+
+        # Sort by last modified descending
+        return sorted(maps, key=lambda m: m.last_modified, reverse=True)
+
+    @staticmethod
+    def delete_mind_map(mind_map_id: str, directory: str):
+        filename = f"{mind_map_id}.json"
+        filepath = os.path.join(directory, filename)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+class MindMapLayout:
+    LEVEL_DISTANCE_BASE = 300.0
+    MIN_NODE_WIDTH = 100.0
+    MIN_NODE_HEIGHT = 60.0
+    PADDING = 20.0
+    TAG_HEIGHT = 30.0
+    GAP = 10.0
+
+    @staticmethod
+    def layout(mind_map: MindMap, font_metrics=None):
+        # font_metrics is a placeholder for QFontMetrics or similar abstraction
+        # If None, we use defaults
+
+        root = mind_map.nodes.get(mind_map.root_node_id)
+        if not root:
+            return
+
+        # 0. Pre-calculate sizes
+        for node in mind_map.nodes.values():
+            MindMapLayout.calculate_node_size(node, font_metrics)
+
+        # 1. Calculate weights
+        weights = {}
+        MindMapLayout.calculate_weights(root, mind_map, weights)
+
+        # 2. Position Nodes (Radial)
+        root.x = 0.0
+        root.y = 0.0
+
+        current_angle = 0.0
+        total_weight = weights.get(root.id, 1)
+
+        if not root.is_collapsed:
+            for child_id in root.children:
+                child = mind_map.nodes.get(child_id)
+                if not child:
+                    continue
+
+                child_weight = weights.get(child_id, 1)
+                sweep = (child_weight / total_weight) * 2 * math.pi
+                mid_angle = current_angle + sweep / 2.0
+
+                MindMapLayout.layout_node(child, mind_map, weights, mid_angle, sweep, 1)
+
+                current_angle += sweep
+
+        # 3. Collision Resolution
+        MindMapLayout.resolve_collisions(mind_map)
+
+    @staticmethod
+    def calculate_node_size(node: MindMapNode, font_metrics):
+        # Approximate if no font metrics
+        if font_metrics:
+            text_width = font_metrics.horizontalAdvance(node.text)
+            text_height = font_metrics.height()
+        else:
+            text_width = len(node.text) * 8
+            text_height = 20
+
+        tags_width = 0
+        tags_height = 0
+        if node.tags:
+            # Simplified tag calculation
+            tags_height = MindMapLayout.TAG_HEIGHT + MindMapLayout.GAP
+            for tag in node.tags:
+                tag_w = len(tag) * 7 + 20 # padding
+                tags_width += tag_w # assuming single line for simplicity or max logic
+
+        content_width = max(text_width, tags_width)
+        content_height = text_height + tags_height
+
+        node.width = max(MindMapLayout.MIN_NODE_WIDTH, content_width + MindMapLayout.PADDING * 2)
+        node.height = max(MindMapLayout.MIN_NODE_HEIGHT, content_height + MindMapLayout.PADDING * 2)
+
+    @staticmethod
+    def calculate_weights(node: MindMapNode, mind_map: MindMap, weights: Dict[str, int]) -> int:
+        if node.is_collapsed or not node.children:
+            weights[node.id] = 1
+            return 1
+
+        s = 0
+        for child_id in node.children:
+            child = mind_map.nodes.get(child_id)
+            if child:
+                s += MindMapLayout.calculate_weights(child, mind_map, weights)
+
+        weights[node.id] = s
+        return s
+
+    @staticmethod
+    def layout_node(node: MindMapNode, mind_map: MindMap, weights: Dict[str, int], angle: float, sweep: float, depth: int):
+        dist = depth * MindMapLayout.LEVEL_DISTANCE_BASE
+        node.x = math.cos(angle) * dist
+        node.y = math.sin(angle) * dist
+
+        if node.is_collapsed or not node.children:
+            return
+
+        total_weight = weights.get(node.id, 1)
+        current_start_angle = angle - sweep / 2.0
+
+        for child_id in node.children:
+            child = mind_map.nodes.get(child_id)
+            if not child:
+                continue
+
+            child_weight = weights.get(child_id, 1)
+            child_sweep = (child_weight / total_weight) * sweep
+            child_mid_angle = current_start_angle + child_sweep / 2.0
+
+            MindMapLayout.layout_node(child, mind_map, weights, child_mid_angle, child_sweep, depth + 1)
+
+            current_start_angle += child_sweep
+
+    @staticmethod
+    def resolve_collisions(mind_map: MindMap):
+        visible_nodes = MindMapLayout.get_visible_nodes(mind_map)
+        iterations = 50
+
+        for _ in range(iterations):
+            max_movement = 0.0
+            for i, n1 in enumerate(visible_nodes):
+                if n1.id == mind_map.root_node_id:
+                    continue
+
+                for j, n2 in enumerate(visible_nodes):
+                    if i == j:
+                        continue
+
+                    dx = n1.x - n2.x
+                    dy = n1.y - n2.y
+                    dist = math.hypot(dx, dy)
+
+                    r1 = max(n1.width, n1.height) / 2.0
+                    r2 = max(n2.width, n2.height) / 2.0
+                    min_dist = r1 + r2 + 20.0
+
+                    if 0.001 < dist < min_dist:
+                        overlap = min_dist - dist
+                        push_x = (dx / dist) * overlap * 0.1
+                        push_y = (dy / dist) * overlap * 0.1
+
+                        n1.x += push_x
+                        n1.y += push_y
+
+                        max_movement = max(max_movement, math.hypot(push_x, push_y))
+
+            if max_movement < 1.0:
+                break
+
+    @staticmethod
+    def get_visible_nodes(mind_map: MindMap) -> List[MindMapNode]:
+        root = mind_map.nodes.get(mind_map.root_node_id)
+        if not root:
+            return []
+
+        nodes = []
+        MindMapLayout.collect_visible(root, mind_map, nodes)
+        return nodes
+
+    @staticmethod
+    def collect_visible(node: MindMapNode, mind_map: MindMap, lst: List[MindMapNode]):
+        lst.append(node)
+        if not node.is_collapsed:
+            for child_id in node.children:
+                child = mind_map.nodes.get(child_id)
+                if child:
+                    MindMapLayout.collect_visible(child, mind_map, lst)
