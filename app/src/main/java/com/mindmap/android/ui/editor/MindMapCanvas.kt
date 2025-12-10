@@ -346,7 +346,9 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
         // Prepare TextPaint for StaticLayout
         textPaint.textSize = 40f * scale
         textPaint.color = android.graphics.Color.BLACK
-        // textPaint is centered alignment, but StaticLayout handles alignment via Builder
+        // StaticLayout expects Paint.Align.LEFT to calculate widths correctly relative to origin.
+        // It handles the actual text alignment (Center) internally via the Alignment parameter.
+        textPaint.textAlign = Paint.Align.LEFT
 
         // Draw Images from Cache
         var currentContentY = ny - nHeight/2 + 20f*scale
