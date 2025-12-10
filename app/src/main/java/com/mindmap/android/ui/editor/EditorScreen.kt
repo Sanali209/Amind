@@ -212,7 +212,37 @@ fun EditorScreen(
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
 
-                context.startActivity(Intent.createChooser(intent, "Share Mind Map"))
+                context.startActivity(Intent.createChooser(intent, "Share Mind Map (Markdown)"))
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Helper to share native JSON file
+    fun shareNative() {
+        mindMap?.let { map ->
+            try {
+                val json = com.google.gson.Gson().toJson(map)
+                val fileName = "${map.title.replace(" ", "_")}.json"
+                val file = File(context.cacheDir, fileName)
+                file.writeText(json)
+
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/json"
+                    putExtra(Intent.EXTRA_SUBJECT, map.title)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+
+                context.startActivity(Intent.createChooser(intent, "Share Mind Map (JSON)"))
             } catch (e: Exception) {
                 e.printStackTrace()
                 Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -282,10 +312,17 @@ fun EditorScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Share via App...") },
+                                text = { Text("Share via App (Markdown)...") },
                                 onClick = {
                                     showShareMenu = false
                                     shareMarkdown()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Share via App (JSON)...") },
+                                onClick = {
+                                    showShareMenu = false
+                                    shareNative()
                                 }
                             )
                         }
