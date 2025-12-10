@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.util.Base64
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -73,7 +75,7 @@ fun MindMapCanvas(
     }
 
     val textPaint = remember {
-        Paint().apply {
+        TextPaint().apply {
             color = android.graphics.Color.WHITE
             textSize = 40f
             textAlign = Paint.Align.CENTER
@@ -114,7 +116,6 @@ fun MindMapCanvas(
         }
     }
 
-    // Paint for checkmark (Android Paint)
     val checkMarkPaint = remember {
         Paint().apply {
              color = android.graphics.Color.BLACK
@@ -267,7 +268,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
     dragOffset: Offset,
     hoverTargetId: String?,
     selectedNodeId: String?,
-    textPaint: Paint,
+    textPaint: TextPaint,
     tagPaint: Paint,
     notePaint: Paint,
     collapsePaint: Paint,
@@ -331,23 +332,34 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
     }
 
     scope.drawIntoCanvas { canvas ->
+        // Prepare TextPaint for StaticLayout
         textPaint.textSize = 40f * scale
         textPaint.color = android.graphics.Color.BLACK
+        // textPaint is centered alignment, but StaticLayout handles alignment via Builder
 
         // Draw Images from Cache
+        var currentContentY = ny - nHeight/2 + 20f*scale
+
         val cachedBitmap = bitmapCache[node.id]
         if (cachedBitmap != null) {
             val imgW = 100f * scale
             val imgH = 100f * scale
-            val src = android.graphics.Rect(0, 0, cachedBitmap.width, cachedBitmap.height)
-            val dst = android.graphics.RectF(nx - imgW/2, ny - imgH - 20f*scale, nx + imgW/2, ny - 20f*scale)
+            // Centered image
+            val dst = android.graphics.RectF(nx - imgW/2, currentContentY, nx + imgW/2, currentContentY + imgH)
             canvas.nativeCanvas.drawBitmap(cachedBitmap, null, dst, null)
+            currentContentY += imgH + 10f*scale
         }
 
+        // Draw Checkbox
         if (node.isTodo) {
             val cbSize = 30f * scale
-            val cbX = nx - nWidth/2 + 10f*scale
-            val cbY = ny - cbSize/2
+            // Draw checkbox to left of text? Or centered?
+            // "Nodes need a maximum width and text word wrap"
+            // If wrapping text, maybe left aligned layout is better?
+            // Layout assumed centered. Let's keep checkbox centered or to left of wrapping text.
+            // Simplified: centered checkbox above text if TODO.
+            val cbX = nx - cbSize/2
+            val cbY = currentContentY
 
             val cbRect = android.graphics.RectF(cbX, cbY, cbX + cbSize, cbY + cbSize)
             checkboxPaint.strokeWidth = 3f * scale
@@ -367,10 +379,26 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
 
                 canvas.nativeCanvas.drawPath(p, checkMarkPaint)
             }
+            currentContentY += cbSize + 10f*scale
         }
 
-        val textYOffset = if (node.tags.isNotEmpty()) -15f * scale else 15f * scale
-        canvas.nativeCanvas.drawText(node.text, nx, ny + textYOffset, textPaint)
+        // Draw Text (Wrapped)
+        val maxTextWidth = 400f * scale // Scaled max width
+        val staticLayout = StaticLayout.Builder.obtain(
+            node.text, 0, node.text.length, textPaint, maxTextWidth.toInt()
+        )
+        .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER)
+        .build()
+
+        canvas.nativeCanvas.save()
+        // Center the StaticLayout horizontally
+        val textX = nx - staticLayout.width / 2
+        val textY = currentContentY
+        canvas.nativeCanvas.translate(textX, textY)
+        staticLayout.draw(canvas.nativeCanvas)
+        canvas.nativeCanvas.restore()
+
+        currentContentY += staticLayout.height + 10f*scale
 
         if (!node.note.isNullOrBlank()) {
              notePaint.textSize = 25f * scale
@@ -380,9 +408,14 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
         if (node.tags.isNotEmpty()) {
             tagPaint.textSize = 30f * scale
             tagPaint.color = android.graphics.Color.DKGRAY
-            val tagsY = ny + 35f * scale
+            // Centered tags below text
             val tagsString = node.tags.joinToString(", ") { "#$it" }
-            canvas.nativeCanvas.drawText(tagsString, nx, tagsY, tagPaint)
+            // Measure to center
+            val bounds = android.graphics.Rect()
+            tagPaint.getTextBounds(tagsString, 0, tagsString.length, bounds)
+            val tagX = nx - bounds.width()/2
+            val tagY = currentContentY + 30f*scale // approximate ascent
+            canvas.nativeCanvas.drawText(tagsString, tagX, tagY, tagPaint)
         }
 
         if (node.children.isNotEmpty()) {

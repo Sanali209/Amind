@@ -2,6 +2,8 @@ package com.mindmap.android.utils
 
 import android.graphics.Paint
 import android.graphics.Rect
+import android.text.StaticLayout
+import android.text.TextPaint
 import com.mindmap.android.model.MindMap
 import com.mindmap.android.model.MindMapNode
 import kotlin.math.atan2
@@ -12,15 +14,15 @@ import kotlin.math.sin
 
 object MindMapLayout {
 
-    private const val LEVEL_DISTANCE_BASE = 300f // Base distance
-    private const val MIN_NODE_WIDTH = 100f
-    private const val MIN_NODE_HEIGHT = 60f
-    private const val PADDING = 20f
+    private const val LEVEL_DISTANCE_BASE = 400f // Increased from 300f
+    private const val MIN_NODE_WIDTH = 150f // Increased minimum width
+    private const val MIN_NODE_HEIGHT = 80f
+    private const val PADDING = 30f // Increased padding
     private const val TAG_HEIGHT = 30f
     private const val GAP = 10f
+    private const val MAX_TEXT_WIDTH = 400f // Max width for wrapping
 
     // Text measurement tools (passed or created)
-    // Since this is object, we can't easily inject context, but we can accept Paint
     fun layout(mindMap: MindMap, textPaint: Paint, tagPaint: Paint) {
         val root = mindMap.nodes[mindMap.rootNodeId] ?: return
 
@@ -55,35 +57,46 @@ object MindMapLayout {
         }
 
         // 3. Third pass: Collision Resolution / Repulsion
-        // Only resolve visible nodes? Or all?
-        // Better to only resolve visible ones to save perf and avoid ghost collisions.
         resolveCollisions(mindMap)
     }
 
     private fun calculateNodeSize(node: MindMapNode, textPaint: Paint, tagPaint: Paint) {
-        // Measure Main Text
-        val textBounds = Rect()
-        textPaint.getTextBounds(node.text, 0, node.text.length, textBounds)
-        val textWidth = textBounds.width().toFloat()
-        val textHeight = textBounds.height().toFloat()
+        // Measure Main Text with Wrapping
+        val tp = TextPaint(textPaint)
+        val staticLayout = android.text.StaticLayout.Builder.obtain(
+            node.text, 0, node.text.length, tp, MAX_TEXT_WIDTH.toInt()
+        ).build()
+
+        val textWidth = staticLayout.width.toFloat()
+        val textHeight = staticLayout.height.toFloat()
 
         // Measure Tags
-        // We assume tags are in a single row or wrapped?
-        // Let's assume a simplified single row for width calculation, or max of text width vs tag width if they were stacked.
-        // Actually the prompt implies tags surround text or inside.
-        // Let's stack them: Text top, Tags bottom.
         var tagsWidth = 0f
         if (node.tags.isNotEmpty()) {
             val tagPadding = 10f
             node.tags.forEach { tag ->
                  val tBounds = Rect()
                  tagPaint.getTextBounds(tag, 0, tag.length, tBounds)
-                 tagsWidth += tBounds.width() + tagPadding * 2 + 10f // + spacing
+                 tagsWidth += tBounds.width() + tagPadding * 2 + 10f
             }
         }
 
-        val contentWidth = max(textWidth, tagsWidth)
-        val contentHeight = textHeight + (if (node.tags.isNotEmpty()) TAG_HEIGHT + GAP else 0f)
+        // Measure Image (Thumbnail placeholder)
+        var imgHeight = 0f
+        var imgWidth = 0f
+        if (node.images.isNotEmpty()) {
+            imgHeight = 100f // Hardcoded thumbnail size match Canvas
+            imgWidth = 100f
+        }
+
+        // Measure Checkbox
+        var cbWidth = 0f
+        if (node.isTodo) {
+            cbWidth = 40f // 30 + padding
+        }
+
+        val contentWidth = max(max(textWidth, tagsWidth), imgWidth) + cbWidth
+        val contentHeight = textHeight + (if (node.tags.isNotEmpty()) TAG_HEIGHT + GAP else 0f) + (if (imgHeight > 0) imgHeight + GAP else 0f)
 
         node.width = max(MIN_NODE_WIDTH, contentWidth + PADDING * 2)
         node.height = max(MIN_NODE_HEIGHT, contentHeight + PADDING * 2)
@@ -118,8 +131,6 @@ object MindMapLayout {
         sweep: Double,
         depth: Int
     ) {
-        // Dynamic distance based on depth is sometimes better, but fixed is okay for now.
-        // Maybe increase distance if depth increases to give more circumference?
         val dist = depth * LEVEL_DISTANCE_BASE
         node.x = (cos(angle) * dist).toFloat()
         node.y = (sin(angle) * dist).toFloat()
@@ -143,15 +154,13 @@ object MindMapLayout {
     }
 
     private fun resolveCollisions(mindMap: MindMap) {
-        // Simple iterative repulsion
-        // We should filter for only visible nodes to improve performance and logic
         val visibleNodes = getVisibleNodes(mindMap)
         val iterations = 50
 
         for (i in 0 until iterations) {
             var maxMovement = 0f
             for (n1 in visibleNodes) {
-                if (n1.id == mindMap.rootNodeId) continue // Root stays fixed
+                if (n1.id == mindMap.rootNodeId) continue
 
                 for (n2 in visibleNodes) {
                     if (n1 == n2) continue
@@ -160,17 +169,13 @@ object MindMapLayout {
                     val dy = n1.y - n2.y
                     val dist = hypot(dx, dy)
 
-                    // Safe distance = sum of radii (approximated by half-diagonal) + buffer
-                    // Or axis aligned box check?
-                    // Let's use a circle approximation for repulsion for smoothness
                     val r1 = max(n1.width, n1.height) / 2f
                     val r2 = max(n2.width, n2.height) / 2f
-                    val minDist = r1 + r2 + 20f // buffer
+                    val minDist = r1 + r2 + 40f // Increased buffer
 
                     if (dist < minDist && dist > 0.001f) {
-                        // Push n1 away from n2
                         val overlap = minDist - dist
-                        val pushX = (dx / dist) * overlap * 0.1f // small step
+                        val pushX = (dx / dist) * overlap * 0.1f
                         val pushY = (dy / dist) * overlap * 0.1f
 
                         n1.x += pushX
@@ -180,7 +185,7 @@ object MindMapLayout {
                     }
                 }
             }
-            if (maxMovement < 1f) break // Converged
+            if (maxMovement < 1f) break
         }
     }
 

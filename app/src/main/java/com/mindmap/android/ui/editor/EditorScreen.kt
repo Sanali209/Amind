@@ -81,9 +81,6 @@ fun EditorScreen(
     var showColorPicker by remember { mutableStateOf(false) }
     var colorPickerNodeId by remember { mutableStateOf<String?>(null) }
 
-    var showRenameDialog by remember { mutableStateOf(false) }
-    var renameText by remember { mutableStateOf("") }
-
     // Paints
     val textPaint = remember { Paint().apply { textSize = 40f; typeface = Typeface.DEFAULT_BOLD } }
     val tagPaint = remember { Paint().apply { textSize = 30f } }
@@ -106,9 +103,6 @@ fun EditorScreen(
                                  undoStack.push(gson.toJson(mindMap!!))
                                  redoStack.clear()
 
-                                 // Clear existing to simulate simple attachment/override or append?
-                                 // Let's replace for now as usually one image per node is typical for mindmaps,
-                                 // but list supports multiple. Let's clear and add to be safe on memory for now.
                                  node.images.clear()
                                  node.images.add(base64)
 
@@ -126,7 +120,7 @@ fun EditorScreen(
         }
     )
 
-    // Export Launcher
+    // Export Launcher (Save As Markdown)
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/markdown"),
         onResult = { uri ->
@@ -185,21 +179,71 @@ fun EditorScreen(
     fun deleteNodeRecursive(mindMap: MindMap, nodeId: String) {
         val node = mindMap.nodes[nodeId] ?: return
 
-        // Remove from parent's children list (caller responsibility usually, but we can do it here if parent exists)
-        // Actually, recursive delete assumes we are traversing down.
-        // The caller handles removing from *original* parent.
-
-        // Recursively delete children
         val children = node.children.toList()
         children.forEach { childId ->
             deleteNodeRecursive(mindMap, childId)
         }
 
-        // Remove crosslinks involving this node
         mindMap.crossLinks.removeAll { it.startNodeId == nodeId || it.endNodeId == nodeId }
-
-        // Remove node itself
         mindMap.nodes.remove(nodeId)
+    }
+
+    fun shareMarkdown() {
+        mindMap?.let { map ->
+            try {
+                val md = FileHelper.exportToMarkdown(map)
+                val fileName = "${map.title.replace(" ", "_")}.md"
+                val file = File(context.cacheDir, fileName)
+                file.writeText(md)
+
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/markdown"
+                    putExtra(Intent.EXTRA_SUBJECT, map.title)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+
+                context.startActivity(Intent.createChooser(intent, "Share Mind Map (Markdown)"))
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun shareNative() {
+        mindMap?.let { map ->
+            try {
+                val json = com.google.gson.Gson().toJson(map)
+                val fileName = "${map.title.replace(" ", "_")}.json"
+                val file = File(context.cacheDir, fileName)
+                file.writeText(json)
+
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/json"
+                    putExtra(Intent.EXTRA_SUBJECT, map.title)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+
+                context.startActivity(Intent.createChooser(intent, "Share Mind Map (JSON)"))
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     // --- Sub-Screens ---
@@ -237,17 +281,10 @@ fun EditorScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(
-                        modifier = Modifier.clickable {
-                            renameText = mindMap!!.title
-                            showRenameDialog = true
-                        },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(mindMap!!.title)
-                        Spacer(Modifier.width(8.dp))
-                        Icon(Icons.Default.Edit, contentDescription = "Rename", modifier = Modifier.size(16.dp))
-                    }
+                    Text(
+                        text = mindMap!!.title,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -280,17 +317,31 @@ fun EditorScreen(
                             Icon(Icons.Default.Share, contentDescription = "Share")
                         }
                         DropdownMenu(expanded = showShareMenu, onDismissRequest = { showShareMenu = false }) {
-                             DropdownMenuItem(
-                                text = { Text("Rename Map") },
-                                onClick = { showShareMenu = false; renameText = mindMap!!.title; showRenameDialog = true }
-                            )
                             DropdownMenuItem(
                                 text = { Text("Save as Markdown...") },
                                 onClick = { showShareMenu = false; exportLauncher.launch("${mindMap!!.title}.md") }
                             )
+                            DropdownMenuItem(
+                                text = { Text("Share via App (Markdown)...") },
+                                onClick = {
+                                    showShareMenu = false
+                                    shareMarkdown()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Share via App (JSON)...") },
+                                onClick = {
+                                    showShareMenu = false
+                                    shareNative()
+                                }
+                            )
                         }
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                )
             )
         }
     ) { padding ->
@@ -345,7 +396,6 @@ fun EditorScreen(
                      val draggedNode = mindMap!!.nodes[draggedId]
                      val targetNode = mindMap!!.nodes[targetId]
                      if (draggedNode != null && targetNode != null) {
-                         // Check for cycle
                          if (!isDescendant(mindMap!!, draggedId, targetId)) {
                              pushHistory()
                              draggedNode.parentId?.let { mindMap!!.nodes[it]?.children?.remove(draggedId) }
@@ -438,12 +488,10 @@ fun EditorScreen(
                     if (node.id != mindMap!!.rootNodeId) {
                         DropdownMenuItem(text = { Text("Delete") }, onClick = {
                             pushHistory()
-                            // Remove from parent first
                             val n = mindMap!!.nodes[menuNodeId]
                             if (n != null && n.parentId != null) {
                                 mindMap!!.nodes[n.parentId]?.children?.remove(n.id)
                             }
-                            // Recursive delete
                             deleteNodeRecursive(mindMap!!, menuNodeId!!)
                             saveMap()
                             showMenu = false
@@ -500,7 +548,12 @@ fun EditorScreen(
                                 node.text = editText
                                 node.tags.clear()
                                 if (editTags.isNotBlank()) node.tags.addAll(editTags.split(",").map{it.trim()}.filter{it.isNotEmpty()})
-                                if (node.id == mindMap!!.rootNodeId) mindMap!!.title = editText
+
+                                // Auto-rename map if root node
+                                if (node.id == mindMap!!.rootNodeId) {
+                                    mindMap!!.title = editText
+                                }
+
                                 saveMap()
                             }
                             showEditDialog = false

@@ -13,6 +13,7 @@ object FileHelper {
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
 
     fun saveMindMap(context: Context, mindMap: MindMap) {
+        // Ensure timestamp is updated
         mindMap.lastModified = System.currentTimeMillis()
         val filename = "${mindMap.id}.json"
         val file = File(context.filesDir, filename)
@@ -25,8 +26,13 @@ object FileHelper {
         val filename = "$id.json"
         val file = File(context.filesDir, filename)
         if (!file.exists()) return null
-        return FileReader(file).use { reader ->
-            gson.fromJson(reader, MindMap::class.java)
+        return try {
+            FileReader(file).use { reader ->
+                gson.fromJson(reader, MindMap::class.java)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
     }
 
