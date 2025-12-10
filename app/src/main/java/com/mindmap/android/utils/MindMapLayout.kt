@@ -26,42 +26,149 @@ object MindMapLayout {
     fun layout(mindMap: MindMap, textPaint: Paint, tagPaint: Paint) {
         val root = mindMap.nodes[mindMap.rootNodeId] ?: return
 
-        // 0. Pre-calculate sizes for nodes (Optimization: we could only do this for visible nodes,
-        // but weight calculation traverses hidden ones too if we wanted to maintain structure.
-        // However, weights stop at collapsed nodes. So effectively we only need sizes for visible nodes
-        // PLUS nodes that might be involved in layout.
-        // For simplicity and to fix the crash, we iterate all but ensure safe StaticLayout usage).
+        // 0. Pre-calculate sizes for nodes
         mindMap.nodes.values.forEach { node ->
             calculateNodeSize(node, textPaint, tagPaint)
         }
 
-        // 1. First pass: Calculate subtree weights (number of leaves)
-        val weights = mutableMapOf<String, Int>()
-        calculateWeights(root, mindMap, weights)
+        if (mindMap.layoutType == "TREE") {
+            layoutTree(mindMap)
+        } else {
+            // Radial Layout
+            // 1. First pass: Calculate subtree weights (number of leaves)
+            val weights = mutableMapOf<String, Int>()
+            calculateWeights(root, mindMap, weights)
 
-        // 2. Second pass: Position nodes (Radial)
+            // 2. Second pass: Position nodes (Radial)
+            root.x = 0f
+            root.y = 0f
+
+            var currentAngle = 0.0
+            val totalWeight = weights[root.id] ?: 1
+
+            if (!root.isCollapsed) {
+                for (childId in root.children) {
+                    val child = mindMap.nodes[childId] ?: continue
+                    val childWeight = weights[childId] ?: 1
+
+                    val sweep = (childWeight.toDouble() / totalWeight) * 2 * Math.PI
+                    val midAngle = currentAngle + sweep / 2
+
+                    layoutNode(child, mindMap, weights, midAngle, sweep, 1)
+
+                    currentAngle += sweep
+                }
+            }
+
+            // 3. Third pass: Collision Resolution / Repulsion
+            resolveCollisions(mindMap)
+        }
+    }
+
+    private fun layoutTree(mindMap: MindMap) {
+        val root = mindMap.nodes[mindMap.rootNodeId] ?: return
         root.x = 0f
         root.y = 0f
 
-        var currentAngle = 0.0
-        val totalWeight = weights[root.id] ?: 1
+        if (root.isCollapsed || root.children.isEmpty()) return
 
-        if (!root.isCollapsed) {
-            for (childId in root.children) {
-                val child = mindMap.nodes[childId] ?: continue
-                val childWeight = weights[childId] ?: 1
+        // Split children into Right and Left (simple alternating or split half)
+        val rightChildren = mutableListOf<String>()
+        val leftChildren = mutableListOf<String>()
 
-                val sweep = (childWeight.toDouble() / totalWeight) * 2 * Math.PI
-                val midAngle = currentAngle + sweep / 2
-
-                layoutNode(child, mindMap, weights, midAngle, sweep, 1)
-
-                currentAngle += sweep
-            }
+        root.children.forEachIndexed { index, id ->
+            if (index % 2 == 0) rightChildren.add(id) else leftChildren.add(id)
         }
 
-        // 3. Third pass: Collision Resolution / Repulsion
-        resolveCollisions(mindMap)
+        // Layout Right Side
+        val rightHeight = calculateTreeHeight(rightChildren, mindMap)
+        layoutTreeSide(rightChildren, mindMap, 1, -rightHeight / 2)
+
+        // Layout Left Side
+        val leftHeight = calculateTreeHeight(leftChildren, mindMap)
+        layoutTreeSide(leftChildren, mindMap, -1, -leftHeight / 2)
+    }
+
+    private fun calculateTreeHeight(children: List<String>, mindMap: MindMap): Float {
+        var h = 0f
+        children.forEach { id ->
+            h += calculateSubtreeHeight(id, mindMap)
+        }
+        return h
+    }
+
+    private fun calculateSubtreeHeight(nodeId: String, mindMap: MindMap): Float {
+        val node = mindMap.nodes[nodeId] ?: return 0f
+        if (node.isCollapsed || node.children.isEmpty()) {
+            return node.height + GAP
+        }
+        var childrenHeight = 0f
+        node.children.forEach { childId ->
+            childrenHeight += calculateSubtreeHeight(childId, mindMap)
+        }
+        // Height is max of node height or children stack height, but typically children stack + self?
+        // Standard tree: node is centered relative to children.
+        // Total height allocated is sum of children heights.
+        // If children height is small, use node height.
+        return max(node.height + GAP, childrenHeight)
+    }
+
+    private fun layoutTreeSide(children: List<String>, mindMap: MindMap, direction: Int, startY: Float) {
+        var currentY = startY
+
+        children.forEach { nodeId ->
+            val node = mindMap.nodes[nodeId] ?: return@forEach
+            val nodeH = calculateSubtreeHeight(nodeId, mindMap)
+
+            // Center node in its allocated vertical slot
+            val childY = currentY + nodeH / 2
+
+            // X position: parent X + parent Width/2 + GAP + child Width/2 (handled by recursive call passing parent X?)
+            // Here we are at level 1 (children of root).
+            // Root is at 0,0.
+            // Node X:
+            val root = mindMap.nodes[mindMap.rootNodeId]!!
+            val nodeX = direction * (root.width / 2 + LEVEL_DISTANCE_BASE/2 + node.width / 2) // LEVEL_DISTANCE_BASE used as horizontal gap
+
+            node.x = nodeX
+            node.y = childY
+
+            // Recursive for children
+            if (!node.isCollapsed && node.children.isNotEmpty()) {
+                layoutTreeChildren(node, mindMap, direction)
+            }
+
+            currentY += nodeH
+        }
+    }
+
+    private fun layoutTreeChildren(parent: MindMapNode, mindMap: MindMap, direction: Int) {
+        // Parent is already placed at parent.x, parent.y
+        // Children should be placed to the right (if dir=1) or left (if dir=-1)
+        // Stacked vertically centered on parent.y?
+        // No, parent.y was centered on its children.
+        // So we start placing children from top of parent's allocated slot?
+        // We need to know the startY for children relative to parent center.
+
+        val totalChildrenHeight = calculateTreeHeight(parent.children, mindMap)
+        var currentY = parent.y - totalChildrenHeight / 2
+
+        parent.children.forEach { childId ->
+             val child = mindMap.nodes[childId] ?: return@forEach
+             val childH = calculateSubtreeHeight(childId, mindMap)
+
+             val childY = currentY + childH / 2
+             val childX = parent.x + direction * (parent.width / 2 + 100f + child.width / 2) // 100f horizontal gap
+
+             child.x = childX
+             child.y = childY
+
+             if (!child.isCollapsed && child.children.isNotEmpty()) {
+                 layoutTreeChildren(child, mindMap, direction)
+             }
+
+             currentY += childH
+        }
     }
 
     private fun calculateNodeSize(node: MindMapNode, textPaint: Paint, tagPaint: Paint) {

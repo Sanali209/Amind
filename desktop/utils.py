@@ -133,33 +133,124 @@ class MindMapLayout:
         for node in mind_map.nodes.values():
             MindMapLayout.calculate_node_size(node, font_metrics)
 
-        # 1. Calculate weights
-        weights = {}
-        MindMapLayout.calculate_weights(root, mind_map, weights)
+        if getattr(mind_map, 'layout_type', "RADIAL") == "TREE":
+             MindMapLayout.layout_tree(mind_map)
+        else:
+             # Radial Layout
+             # 1. Calculate weights
+             weights = {}
+             MindMapLayout.calculate_weights(root, mind_map, weights)
 
-        # 2. Position Nodes (Radial)
+             # 2. Position Nodes (Radial)
+             root.x = 0.0
+             root.y = 0.0
+
+             current_angle = 0.0
+             total_weight = weights.get(root.id, 1)
+
+             if not root.is_collapsed:
+                 for child_id in root.children:
+                     child = mind_map.nodes.get(child_id)
+                     if not child:
+                         continue
+
+                     child_weight = weights.get(child_id, 1)
+                     sweep = (child_weight / total_weight) * 2 * math.pi
+                     mid_angle = current_angle + sweep / 2.0
+
+                     MindMapLayout.layout_node(child, mind_map, weights, mid_angle, sweep, 1)
+
+                     current_angle += sweep
+
+             # 3. Collision Resolution
+             MindMapLayout.resolve_collisions(mind_map)
+
+    @staticmethod
+    def layout_tree(mind_map: MindMap):
+        root = mind_map.nodes.get(mind_map.root_node_id)
+        if not root: return
         root.x = 0.0
         root.y = 0.0
 
-        current_angle = 0.0
-        total_weight = weights.get(root.id, 1)
+        if root.is_collapsed or not root.children: return
 
-        if not root.is_collapsed:
-            for child_id in root.children:
-                child = mind_map.nodes.get(child_id)
-                if not child:
-                    continue
+        right_children = []
+        left_children = []
+        for i, child_id in enumerate(root.children):
+            if i % 2 == 0:
+                right_children.append(child_id)
+            else:
+                left_children.append(child_id)
 
-                child_weight = weights.get(child_id, 1)
-                sweep = (child_weight / total_weight) * 2 * math.pi
-                mid_angle = current_angle + sweep / 2.0
+        # Layout Right
+        right_height = MindMapLayout.calculate_tree_height(right_children, mind_map)
+        MindMapLayout.layout_tree_side(right_children, mind_map, 1, -right_height / 2.0)
 
-                MindMapLayout.layout_node(child, mind_map, weights, mid_angle, sweep, 1)
+        # Layout Left
+        left_height = MindMapLayout.calculate_tree_height(left_children, mind_map)
+        MindMapLayout.layout_tree_side(left_children, mind_map, -1, -left_height / 2.0)
 
-                current_angle += sweep
+    @staticmethod
+    def calculate_tree_height(children: List[str], mind_map: MindMap) -> float:
+        h = 0.0
+        for child_id in children:
+            h += MindMapLayout.calculate_subtree_height(child_id, mind_map)
+        return h
 
-        # 3. Collision Resolution
-        MindMapLayout.resolve_collisions(mind_map)
+    @staticmethod
+    def calculate_subtree_height(node_id: str, mind_map: MindMap) -> float:
+        node = mind_map.nodes.get(node_id)
+        if not node: return 0.0
+        if node.is_collapsed or not node.children:
+            return node.height + MindMapLayout.GAP
+
+        children_height = 0.0
+        for child_id in node.children:
+            children_height += MindMapLayout.calculate_subtree_height(child_id, mind_map)
+
+        return max(node.height + MindMapLayout.GAP, children_height)
+
+    @staticmethod
+    def layout_tree_side(children: List[str], mind_map: MindMap, direction: int, start_y: float):
+        current_y = start_y
+        for child_id in children:
+            node = mind_map.nodes.get(child_id)
+            if not node: continue
+
+            node_h = MindMapLayout.calculate_subtree_height(child_id, mind_map)
+            child_y = current_y + node_h / 2.0
+
+            root = mind_map.nodes.get(mind_map.root_node_id)
+            node_x = direction * (root.width / 2.0 + 300.0/2.0 + node.width / 2.0)
+
+            node.x = node_x
+            node.y = child_y
+
+            if not node.is_collapsed and node.children:
+                MindMapLayout.layout_tree_children(node, mind_map, direction)
+
+            current_y += node_h
+
+    @staticmethod
+    def layout_tree_children(parent: MindMapNode, mind_map: MindMap, direction: int):
+        total_children_height = MindMapLayout.calculate_tree_height(parent.children, mind_map)
+        current_y = parent.y - total_children_height / 2.0
+
+        for child_id in parent.children:
+            child = mind_map.nodes.get(child_id)
+            if not child: continue
+
+            child_h = MindMapLayout.calculate_subtree_height(child_id, mind_map)
+            child_y = current_y + child_h / 2.0
+            child_x = parent.x + direction * (parent.width / 2.0 + 100.0 + child.width / 2.0)
+
+            child.x = child_x
+            child.y = child_y
+
+            if not child.is_collapsed and child.children:
+                MindMapLayout.layout_tree_children(child, mind_map, direction)
+
+            current_y += child_h
 
     @staticmethod
     def calculate_node_size(node: MindMapNode, font_metrics):

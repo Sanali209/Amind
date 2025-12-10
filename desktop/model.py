@@ -117,13 +117,15 @@ class MindMap:
                  root_node_id: str = "",
                  nodes: Dict[str, MindMapNode] = None,
                  cross_links: List[CrossLink] = None,
-                 last_modified: int = None):
+                 last_modified: int = None,
+                 layout_type: str = "RADIAL"):
         self.id = id if id else str(uuid.uuid4())
         self.title = title
         self.root_node_id = root_node_id
         self.nodes = nodes if nodes is not None else {}
         self.cross_links = cross_links if cross_links is not None else []
         self.last_modified = last_modified if last_modified else int(time.time() * 1000)
+        self.layout_type = layout_type
 
     @classmethod
     def create_default(cls):

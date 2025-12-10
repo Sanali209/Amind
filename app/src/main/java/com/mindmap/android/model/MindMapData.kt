@@ -36,7 +36,8 @@ data class MindMap(
     var rootNodeId: String = "",
     val nodes: MutableMap<String, MindMapNode> = mutableMapOf(),
     val crossLinks: MutableList<CrossLink> = mutableListOf(),
-    var lastModified: Long = System.currentTimeMillis()
+    var lastModified: Long = System.currentTimeMillis(),
+    var layoutType: String = "RADIAL" // "RADIAL" or "TREE"
 ) {
     // Helper to create a default map
     companion object {

@@ -336,6 +336,36 @@ fun EditorScreen(
                             )
                         }
                     }
+                    Box {
+                        var showLayoutMenu by remember { mutableStateOf(false) }
+                        IconButton(onClick = { showLayoutMenu = true }) {
+                            Text("Layout")
+                        }
+                        DropdownMenu(expanded = showLayoutMenu, onDismissRequest = { showLayoutMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Radial (Default)") },
+                                onClick = {
+                                    showLayoutMenu = false
+                                    if (mindMap!!.layoutType != "RADIAL") {
+                                        pushHistory()
+                                        mindMap!!.layoutType = "RADIAL"
+                                        saveMap()
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Tree (Horizontal)") },
+                                onClick = {
+                                    showLayoutMenu = false
+                                    if (mindMap!!.layoutType != "TREE") {
+                                        pushHistory()
+                                        mindMap!!.layoutType = "TREE"
+                                        saveMap()
+                                    }
+                                }
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
