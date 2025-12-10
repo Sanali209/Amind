@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -249,6 +250,9 @@ fun EditorScreen(
     // --- Sub-Screens ---
 
     if (showNoteEditor) {
+        BackHandler {
+             showNoteEditor = false
+        }
         NoteEditorScreen(
             initialNote = initialNoteContent,
             onSave = { newNote ->

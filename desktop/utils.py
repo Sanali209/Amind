@@ -171,6 +171,23 @@ class MindMapLayout:
             text_width = len(node.text) * 8
             text_height = 20
 
+        # Images
+        image_height = 0
+        image_width = 0
+        if node.images:
+             # Assume single image for layout purposes or stack them
+             # Fixed size for now to match rendering assumption
+             image_height = 100.0 + MindMapLayout.GAP
+             image_width = 100.0
+
+        # Checkbox
+        checkbox_height = 0
+        checkbox_width = 0
+        if node.is_todo:
+            checkbox_height = 30.0 + MindMapLayout.GAP
+            checkbox_width = 30.0
+
+        # Tags
         tags_width = 0
         tags_height = 0
         if node.tags:
@@ -180,8 +197,8 @@ class MindMapLayout:
                 tag_w = len(tag) * 7 + 20 # padding
                 tags_width += tag_w # assuming single line for simplicity or max logic
 
-        content_width = max(text_width, tags_width)
-        content_height = text_height + tags_height
+        content_width = max(text_width, tags_width, image_width, checkbox_width)
+        content_height = image_height + checkbox_height + text_height + tags_height
 
         node.width = max(MindMapLayout.MIN_NODE_WIDTH, content_width + MindMapLayout.PADDING * 2)
         node.height = max(MindMapLayout.MIN_NODE_HEIGHT, content_height + MindMapLayout.PADDING * 2)

@@ -56,7 +56,18 @@ fun MindMapCanvas(
     // Cache decoded bitmaps
     val bitmapCache = remember { mutableMapOf<String, Bitmap?>() }
 
-    LaunchedEffect(mindMap) {
+    // We key on a composite hash of all image data to detect changes
+    // Or we rely on the fact that if an image is added, the 'images' list content changes
+    val imagesHash = remember(mindMap) {
+         mindMap.nodes.values.sumOf { it.images.hashCode() }
+    }
+
+    LaunchedEffect(mindMap, imagesHash) {
+        // Simple cleanup of removed nodes
+        val currentIds = mindMap.nodes.keys
+        val cachedIds = bitmapCache.keys.toList()
+        cachedIds.forEach { if (!currentIds.contains(it)) bitmapCache.remove(it) }
+
         mindMap.nodes.values.forEach { node ->
             if (node.images.isNotEmpty()) {
                 if (!bitmapCache.containsKey(node.id)) {
@@ -288,7 +299,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
             val child = mindMap.nodes[childId] ?: return@forEach
             val cx = child.x * scale + centerX
             val cy = child.y * scale + centerY
-            val color = if (node.colorOverride != null) Color(node.colorOverride!!.toULong())
+            val color = if (node.colorOverride != null) Color(node.colorOverride!!.toInt())
                         else if (node.id == mindMap.rootNodeId) Color.Gray
                         else RainbowColors[abs(node.id.hashCode()) % RainbowColors.size]
             val path = Path().apply { moveTo(nx, ny); cubicTo(nx, ny + (cy - ny) / 2, cx, cy - (cy - ny) / 2, cx, cy) }
@@ -302,7 +313,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
     val left = nx - nWidth / 2
     val top = ny - nHeight / 2
 
-    val nodeColor = if (node.colorOverride != null) Color(node.colorOverride!!.toULong())
+    val nodeColor = if (node.colorOverride != null) Color(node.colorOverride!!.toInt())
                     else if (node.id == mindMap.rootNodeId) Color.White
                     else RainbowColors[abs(node.id.hashCode()) % RainbowColors.size]
 
@@ -384,11 +395,19 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
 
         // Draw Text (Wrapped)
         val maxTextWidth = 400f * scale // Scaled max width
-        val staticLayout = StaticLayout.Builder.obtain(
-            node.text, 0, node.text.length, textPaint, maxTextWidth.toInt()
-        )
-        .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER)
-        .build()
+        val staticLayout = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            StaticLayout.Builder.obtain(
+                node.text, 0, node.text.length, textPaint, maxTextWidth.toInt()
+            )
+            .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER)
+            .build()
+        } else {
+            @Suppress("DEPRECATION")
+            StaticLayout(
+                node.text, textPaint, maxTextWidth.toInt(),
+                android.text.Layout.Alignment.ALIGN_CENTER, 1f, 0f, false
+            )
+        }
 
         canvas.nativeCanvas.save()
         // Center the StaticLayout horizontally

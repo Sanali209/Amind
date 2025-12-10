@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
@@ -69,16 +70,21 @@ fun NoteEditorScreen(
             Spacer(Modifier.height(8.dp))
 
             // Editor Area
-            BasicTextField(
-                value = noteContent,
-                onValueChange = { noteContent = it },
-                modifier = Modifier
+            Box(
+                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.DarkGray, MaterialTheme.shapes.small)
-                    .padding(16.dp),
-                textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
-                cursorBrush = SolidColor(Color.White)
-            )
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
+            ) {
+                BasicTextField(
+                    value = noteContent,
+                    onValueChange = { noteContent = it },
+                    modifier = Modifier.fillMaxSize(),
+                    textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
+                    cursorBrush = SolidColor(Color.White)
+                )
+            }
         }
     }
 }
