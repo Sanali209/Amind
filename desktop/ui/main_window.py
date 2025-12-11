@@ -2,11 +2,12 @@ import os
 import shutil
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QListWidget, QListWidgetItem, QFileDialog,
-                               QMessageBox, QLabel, QSplitter)
+                               QMessageBox, QLabel, QSplitter, QToolBar)
 from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QAction
 from model import MindMap, MindMapNode
 from utils import FileHelper
-from ui.mind_map_view import MindMapView  # We will create this next
+from ui.mind_map_view import MindMapView
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -19,6 +20,18 @@ class MainWindow(QMainWindow):
             os.makedirs(self.storage_path)
 
         self.current_mind_map: MindMap = None
+
+        # Toolbar
+        toolbar = QToolBar("Main Toolbar")
+        self.addToolBar(toolbar)
+
+        self.layout_action = QAction("Switch Layout", self)
+        self.layout_action.triggered.connect(self.toggle_layout)
+        toolbar.addAction(self.layout_action)
+
+        export_md_action = QAction("Export Markdown", self)
+        export_md_action.triggered.connect(self.export_markdown)
+        toolbar.addAction(export_md_action)
 
         # Central Widget
         central_widget = QWidget()
@@ -79,8 +92,6 @@ class MainWindow(QMainWindow):
         self.load_map(map_id)
 
     def load_map(self, map_id):
-        # Save current if exists? For now assume auto-save on change or manual save
-        # Actually let's just load
         filename = f"{map_id}.json"
         filepath = os.path.join(self.storage_path, filename)
         if os.path.exists(filepath):
@@ -95,7 +106,6 @@ class MainWindow(QMainWindow):
         try:
             imported_map = FileHelper.load_mind_map(file_path)
 
-            # Synchronization Logic
             existing_filename = f"{imported_map.id}.json"
             existing_filepath = os.path.join(self.storage_path, existing_filename)
 
@@ -103,12 +113,7 @@ class MainWindow(QMainWindow):
 
             if os.path.exists(existing_filepath):
                 existing_map = FileHelper.load_mind_map(existing_filepath)
-
-                # Check timestamps
                 if imported_map.last_modified <= existing_map.last_modified:
-                    # Imported is older or same, ask user or skip?
-                    # User request: "if import... and date of modification is newer replace the old"
-                    # Implicitly, if older, do not replace.
                     reply = QMessageBox.question(
                         self,
                         "Map Exists",
@@ -129,3 +134,29 @@ class MainWindow(QMainWindow):
     def save_current_map(self):
         if self.current_mind_map:
             FileHelper.save_mind_map(self.current_mind_map, self.storage_path)
+
+    def toggle_layout(self):
+        if not self.current_mind_map:
+            return
+
+        if self.current_mind_map.layout_type == "RADIAL":
+            self.current_mind_map.layout_type = "TREE"
+        else:
+            self.current_mind_map.layout_type = "RADIAL"
+
+        self.save_current_map()
+        self.mind_map_view.refresh_scene()
+
+    def export_markdown(self):
+        if not self.current_mind_map:
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Markdown", f"{self.current_mind_map.title}.md", "Markdown Files (*.md)")
+        if file_path:
+            try:
+                md_content = FileHelper.export_to_markdown(self.current_mind_map)
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(md_content)
+                QMessageBox.information(self, "Success", "Export successful.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to export: {e}")

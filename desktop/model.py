@@ -16,7 +16,10 @@ class MindMapNode:
                  color: int = 0xFF000000,
                  color_override: Optional[int] = None,
                  tags: List[str] = None,
-                 is_collapsed: bool = False):
+                 is_collapsed: bool = False,
+                 images: List[str] = None,
+                 is_todo: bool = False,
+                 is_checked: bool = False):
         self.id = id if id else str(uuid.uuid4())
         self.text = text
         self.note = note
@@ -30,6 +33,9 @@ class MindMapNode:
         self.color_override = color_override
         self.tags = tags if tags is not None else []
         self.is_collapsed = is_collapsed
+        self.images = images if images is not None else []
+        self.is_todo = is_todo
+        self.is_checked = is_checked
 
     def to_dict(self):
         return {
@@ -45,7 +51,10 @@ class MindMapNode:
             "color": self.color,
             "colorOverride": self.color_override,
             "tags": self.tags,
-            "isCollapsed": self.is_collapsed
+            "isCollapsed": self.is_collapsed,
+            "images": self.images,
+            "isTodo": self.is_todo,
+            "isChecked": self.is_checked
         }
 
     @classmethod
@@ -63,7 +72,10 @@ class MindMapNode:
             color=data.get("color", 0xFF000000),
             color_override=data.get("colorOverride"),
             tags=data.get("tags", []),
-            is_collapsed=data.get("isCollapsed", False)
+            is_collapsed=data.get("isCollapsed", False),
+            images=data.get("images", []),
+            is_todo=data.get("isTodo", False),
+            is_checked=data.get("isChecked", False)
         )
 
 class CrossLink:
@@ -101,13 +113,15 @@ class MindMap:
                  root_node_id: str = "",
                  nodes: Dict[str, MindMapNode] = None,
                  cross_links: List[CrossLink] = None,
-                 last_modified: int = None):
+                 last_modified: int = None,
+                 layout_type: str = "RADIAL"):
         self.id = id if id else str(uuid.uuid4())
         self.title = title
         self.root_node_id = root_node_id
         self.nodes = nodes if nodes is not None else {}
         self.cross_links = cross_links if cross_links is not None else []
         self.last_modified = last_modified if last_modified else int(time.time() * 1000)
+        self.layout_type = layout_type
 
     @classmethod
     def create_default(cls):
@@ -124,7 +138,8 @@ class MindMap:
             "rootNodeId": self.root_node_id,
             "nodes": {k: v.to_dict() for k, v in self.nodes.items()},
             "crossLinks": [link.to_dict() for link in self.cross_links],
-            "lastModified": self.last_modified
+            "lastModified": self.last_modified,
+            "layoutType": self.layout_type
         }
 
     @classmethod
@@ -141,5 +156,6 @@ class MindMap:
             root_node_id=data.get("rootNodeId", ""),
             nodes=nodes,
             cross_links=links,
-            last_modified=data.get("lastModified", int(time.time() * 1000))
+            last_modified=data.get("lastModified", int(time.time() * 1000)),
+            layout_type=data.get("layoutType", "RADIAL")
         )

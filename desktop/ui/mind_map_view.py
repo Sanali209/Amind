@@ -1,12 +1,15 @@
 import math
+import base64
 from PySide6.QtWidgets import (QGraphicsView, QGraphicsScene, QGraphicsItem,
                                QGraphicsTextItem, QGraphicsRectItem, QGraphicsPathItem,
-                               QMenu, QGraphicsSceneMouseEvent)
-from PySide6.QtCore import Qt, QRectF, QPointF, Signal
-from PySide6.QtGui import QPen, QBrush, QColor, QPainterPath, QFont, QPainter
+                               QMenu, QGraphicsSceneMouseEvent, QFileDialog, QGraphicsPixmapItem,
+                               QInputDialog)
+from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QByteArray
+from PySide6.QtGui import QPen, QBrush, QColor, QPainterPath, QFont, QPainter, QPixmap
 
-from model import MindMap, MindMapNode
+from model import MindMap, MindMapNode, CrossLink
 from utils import MindMapLayout
+from ui.node_edit_dialog import NodeEditDialog
 
 class NodeItem(QGraphicsRectItem):
     def __init__(self, node: MindMapNode, view):
@@ -18,13 +21,9 @@ class NodeItem(QGraphicsRectItem):
         self.setPos(node.x - node.width / 2, node.y - node.height / 2)
 
         # Style
-        self.setBrush(QBrush(QColor(0xFF, 0xFF, 0xFF))) # White background for now, dark theme later
+        self.setBrush(QBrush(QColor(0xFF, 0xFF, 0xFF))) # White background for now
         if node.color_override:
-             # Convert int color to QColor
              c = node.color_override
-             # Android int color is ARGB usually, but let's assume standard hex handling
-             # 0xFFRRGGBB
-             # Python struct or masking
              alpha = (c >> 24) & 0xFF
              red = (c >> 16) & 0xFF
              green = (c >> 8) & 0xFF
@@ -38,9 +37,68 @@ class NodeItem(QGraphicsRectItem):
         self.setFlag(QGraphicsItem.ItemIsMovable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
 
-        # Text
+        # --- Content Rendering ---
+        y_cursor = 10
+
+        # 1. Images
+        if node.images:
+            # Display first image for now
+            try:
+                img_data = base64.b64decode(node.images[0])
+                pixmap = QPixmap()
+                pixmap.loadFromData(img_data)
+                if not pixmap.isNull():
+                    # Scale to fit width-20
+                    target_w = node.width - 20
+                    scaled_pix = pixmap.scaledToWidth(target_w, Qt.SmoothTransformation)
+
+                    pix_item = QGraphicsPixmapItem(scaled_pix, self)
+                    pix_item.setPos(10, y_cursor)
+                    y_cursor += scaled_pix.height() + 5
+            except Exception as e:
+                print(f"Error loading image: {e}")
+
+        # 2. Checkbox (if Todo)
+        if node.is_todo:
+            self.checkbox_rect = QRectF(10, y_cursor, 20, 20)
+            y_cursor_text = y_cursor # Text aligns with checkbox top
+
+            self.checkbox_item = QGraphicsRectItem(self.checkbox_rect, self)
+            self.checkbox_item.setPen(QPen(Qt.black))
+            if node.is_checked:
+                self.checkbox_item.setBrush(QBrush(Qt.green))
+            else:
+                self.checkbox_item.setBrush(QBrush(Qt.white))
+
+            # Text moves right
+            text_x = 35
+        else:
+            text_x = 10
+            y_cursor_text = y_cursor
+
+        # 3. Text
         self.text_item = QGraphicsTextItem(node.text, self)
-        self.text_item.setPos(10, 10) # Padding
+        self.text_item.setPos(text_x, y_cursor_text)
+        self.text_item.setTextWidth(node.width - text_x - 10)
+
+        y_cursor = max(y_cursor + 20, y_cursor_text + self.text_item.boundingRect().height() + 5)
+
+        # 4. Tags
+        if node.tags:
+            tags_str = " ".join([f"#{t}" for t in node.tags])
+            self.tags_item = QGraphicsTextItem(tags_str, self)
+            f = self.tags_item.font()
+            f.setPointSize(8)
+            f.setItalic(True)
+            self.tags_item.setFont(f)
+            self.tags_item.setPos(10, y_cursor)
+            self.tags_item.setTextWidth(node.width - 20)
+            y_cursor += self.tags_item.boundingRect().height() + 5
+
+        # 5. Note Indicator
+        if node.note:
+            self.note_icon = QGraphicsTextItem("📝", self)
+            self.note_icon.setPos(node.width - 30, 0) # Top right corner
 
         # Collapse Indicator (if has children)
         if node.children:
@@ -58,6 +116,13 @@ class NodeItem(QGraphicsRectItem):
                 self.view.toggle_collapse(self.node)
                 event.accept()
                 return
+
+            # Check for Checkbox click - INDEPENDENT CHECK
+            if self.node.is_todo and hasattr(self, 'checkbox_item') and self.checkbox_item.isUnderMouse():
+                self.view.toggle_checkbox(self.node)
+                event.accept()
+                return
+
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -70,28 +135,32 @@ class NodeItem(QGraphicsRectItem):
                      # Potential new parent
                      self.view.reparent_node(self.node, item.node)
                      break
-             # Even if no reparent, we trigger refresh which resets layout
              self.view.refresh_scene()
-
-    def itemChange(self, change, value):
-        if change == QGraphicsItem.ItemPositionHasChanged:
-            # Update model
-            # Note: This might fight with layout engine if we re-layout constantly
-            pass
-        return super().itemChange(change, value)
 
     def contextMenuEvent(self, event):
         menu = QMenu()
-        edit_action = menu.addAction("Edit Text")
+        edit_action = menu.addAction("Edit Details...")
+
+        if self.node.is_todo:
+            toggle_chk = menu.addAction("Toggle Checked")
+
         add_child_action = menu.addAction("Add Child")
+        add_link_action = menu.addAction("Add Crosslink")
+        attach_img_action = menu.addAction("Attach Image")
         delete_action = menu.addAction("Delete")
 
         action = menu.exec(event.screenPos())
 
         if action == edit_action:
-            self.view.edit_node_text(self.node)
+            self.view.edit_node_details(self.node)
+        elif self.node.is_todo and action == toggle_chk:
+            self.view.toggle_checkbox(self.node)
         elif action == add_child_action:
             self.view.add_child_node(self.node)
+        elif action == add_link_action:
+            self.view.start_crosslink(self.node)
+        elif action == attach_img_action:
+            self.view.attach_image(self.node)
         elif action == delete_action:
             self.view.delete_node(self.node)
 
@@ -110,6 +179,65 @@ class EdgeItem(QGraphicsPathItem):
         self.setPen(QPen(Qt.gray, 2))
         self.setZValue(-1) # Behind nodes
 
+class CrossLinkItem(QGraphicsPathItem):
+    def __init__(self, link: CrossLink, start_pos, end_pos, view):
+        super().__init__()
+        self.link = link
+        self.view = view
+
+        path = QPainterPath()
+        path.moveTo(start_pos)
+        path.lineTo(end_pos)
+        self.setPath(path)
+        self.setPen(QPen(Qt.red, 2, Qt.DashLine))
+        self.setZValue(-1)
+
+        # Arrowhead
+        self.arrow = QGraphicsPathItem(self)
+        line = QPointF(end_pos.x() - start_pos.x(), end_pos.y() - start_pos.y())
+        length = math.hypot(line.x(), line.y())
+        if length > 0:
+            norm = QPointF(line.x()/length, line.y()/length)
+            angle = math.atan2(norm.y(), norm.x())
+            arrow_p = QPainterPath()
+            arrow_p.moveTo(end_pos)
+            # -20px back
+            p1 = QPointF(end_pos.x() - 15 * math.cos(angle - math.pi/6),
+                         end_pos.y() - 15 * math.sin(angle - math.pi/6))
+            p2 = QPointF(end_pos.x() - 15 * math.cos(angle + math.pi/6),
+                         end_pos.y() - 15 * math.sin(angle + math.pi/6))
+            arrow_p.lineTo(p1)
+            arrow_p.lineTo(p2)
+            arrow_p.closeSubpath()
+            self.arrow.setPath(arrow_p)
+            self.arrow.setBrush(Qt.red)
+            self.arrow.setPen(Qt.NoPen)
+
+        # Label
+        if link.label:
+            mid = QPointF((start_pos.x() + end_pos.x())/2, (start_pos.y() + end_pos.y())/2)
+            txt = QGraphicsTextItem(link.label, self)
+            txt.setDefaultTextColor(Qt.red)
+            txt.setPos(mid)
+
+        # Enable selection for context menu
+        # QGraphicsPathItem hit test uses path stroke. Thick pen helps.
+        # But we need to override shape() or use a wider invisible path if selection is hard.
+        # For now, let's assume DashLine is clickable.
+        self.setFlag(QGraphicsItem.ItemIsSelectable)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu()
+        edit_action = menu.addAction("Edit Label")
+        delete_action = menu.addAction("Delete")
+
+        action = menu.exec(event.screenPos())
+
+        if action == edit_action:
+            self.view.edit_crosslink_label(self.link)
+        elif action == delete_action:
+            self.view.delete_crosslink(self.link)
+
 class MindMapView(QGraphicsView):
     def __init__(self, main_window):
         super().__init__()
@@ -120,6 +248,7 @@ class MindMapView(QGraphicsView):
         self.setDragMode(QGraphicsView.ScrollHandDrag)
 
         self.mind_map: MindMap = None
+        self.crosslink_source: MindMapNode = None
 
     def set_mind_map(self, mind_map: MindMap):
         self.mind_map = mind_map
@@ -131,7 +260,7 @@ class MindMapView(QGraphicsView):
             return
 
         # 1. Run Layout
-        MindMapLayout.layout(self.mind_map) # Pass font metrics if needed
+        MindMapLayout.layout(self.mind_map)
 
         # 2. Clear and Draw
         self.scene.clear()
@@ -139,25 +268,64 @@ class MindMapView(QGraphicsView):
         # Draw Edges first
         self.draw_edges(self.mind_map.nodes[self.mind_map.root_node_id])
 
+        # Draw CrossLinks
+        for link in self.mind_map.cross_links:
+            start = self.mind_map.nodes.get(link.start_node_id)
+            end = self.mind_map.nodes.get(link.end_node_id)
+            if start and end and self.is_node_visible(start) and self.is_node_visible(end):
+                item = CrossLinkItem(link, QPointF(start.x, start.y), QPointF(end.x, end.y), self)
+                self.scene.addItem(item)
+
         # Draw Nodes
         for node in self.mind_map.nodes.values():
-            # Check visibility logic (handled by layout essentially setting positions, but we should only draw visible)
-            # Layout sets visible nodes. Collapsed children are not laid out properly or ignored.
-            # We need a visibility check helper
             if self.is_node_visible(node):
                 item = NodeItem(node, self)
+                # If selecting for crosslink
+                if self.crosslink_source and node.id == self.crosslink_source.id:
+                    item.setPen(QPen(Qt.red, 3))
                 self.scene.addItem(item)
+
+                # Check for click if in crosslink mode
+                if self.crosslink_source:
+                    # Hijack click in item? Handled in mousePress?
+                    # easier to handle at View level?
+                    pass
 
         # Update Scene Rect
         self.scene.setSceneRect(self.scene.itemsBoundingRect())
 
+        # Overlay instruction if crosslinking
+        if self.crosslink_source:
+            txt = self.scene.addText("Click target node to link")
+            txt.setDefaultTextColor(Qt.red)
+            txt.setScale(2)
+            txt.setPos(self.scene.sceneRect().topLeft())
+
+    def mousePressEvent(self, event):
+        if self.crosslink_source:
+             item = self.itemAt(event.pos())
+             if isinstance(item, NodeItem):
+                 if item.node.id != self.crosslink_source.id:
+                     self.create_crosslink(self.crosslink_source, item.node)
+             elif isinstance(item, QGraphicsTextItem) and isinstance(item.parentItem(), NodeItem):
+                 # Clicked text of node
+                 if item.parentItem().node.id != self.crosslink_source.id:
+                     self.create_crosslink(self.crosslink_source, item.parentItem().node)
+
+             # Cancel if clicked background
+             if not item:
+                 self.crosslink_source = None
+                 self.refresh_scene()
+             return
+
+        super().mousePressEvent(event)
+
     def is_node_visible(self, node: MindMapNode):
-        # Walk up to root, if any parent is collapsed, then this is hidden
         curr = node
         while curr.parent_id:
             parent = self.mind_map.nodes.get(curr.parent_id)
             if not parent:
-                return True # Orphan?
+                return True
             if parent.is_collapsed:
                 return False
             curr = parent
@@ -182,77 +350,68 @@ class MindMapView(QGraphicsView):
         self.main_window.save_current_map()
         self.refresh_scene()
 
-    def edit_node_text(self, node: MindMapNode):
-        from PySide6.QtWidgets import QInputDialog
-        text, ok = QInputDialog.getText(self, "Edit Node", "Text:", text=node.text)
-        if ok:
-            node.text = text
+    def toggle_checkbox(self, node: MindMapNode):
+        node.is_checked = not node.is_checked
+        self.main_window.save_current_map()
+        self.refresh_scene()
+
+    def edit_node_details(self, node: MindMapNode):
+        dialog = NodeEditDialog(self, node)
+        if dialog.exec():
+            vals = dialog.get_values()
+            node.text = vals["text"]
+            node.note = vals["note"]
+            node.tags = vals["tags"]
+            node.is_todo = vals["is_todo"]
+            node.color_override = vals["color_override"]
             self.main_window.save_current_map()
             self.refresh_scene()
 
     def add_child_node(self, parent: MindMapNode):
         new_node = MindMapNode(text="New Child", parent_id=parent.id)
-        # Position it near parent initially
         new_node.x = parent.x + 50
         new_node.y = parent.y + 50
-
         self.mind_map.nodes[new_node.id] = new_node
         parent.children.append(new_node.id)
-        parent.is_collapsed = False # Auto expand
-
+        parent.is_collapsed = False
         self.main_window.save_current_map()
         self.refresh_scene()
 
     def delete_node(self, node: MindMapNode):
         if node.id == self.mind_map.root_node_id:
-            return # Cannot delete root
-
-        # Remove from parent's children list
+            return
         if node.parent_id:
             parent = self.mind_map.nodes.get(node.parent_id)
             if parent and node.id in parent.children:
                 parent.children.remove(node.id)
-
-        # Remove node and all descendants
         self.remove_subtree(node)
-
         self.main_window.save_current_map()
         self.refresh_scene()
 
     def remove_subtree(self, node: MindMapNode):
-        for child_id in list(node.children): # Copy list
+        for child_id in list(node.children):
             child = self.mind_map.nodes.get(child_id)
             if child:
                 self.remove_subtree(child)
-
         if node.id in self.mind_map.nodes:
             del self.mind_map.nodes[node.id]
 
     def reparent_node(self, node: MindMapNode, new_parent: MindMapNode):
-        # 1. Validation: Prevent cycles (cannot drop parent on its own child/descendant)
         if self.is_descendant(node, new_parent):
-            return # Invalid move
-
-        # 2. Remove from old parent
+            return
         if node.parent_id:
             old_parent = self.mind_map.nodes.get(node.parent_id)
             if old_parent and node.id in old_parent.children:
                 old_parent.children.remove(node.id)
-
-        # 3. Add to new parent
         node.parent_id = new_parent.id
         new_parent.children.append(node.id)
         new_parent.is_collapsed = False
-
         self.main_window.save_current_map()
-        # Scene refresh happens in mouseRelease
+        # Scene refresh triggered by mouseRelease
 
     def is_descendant(self, potential_ancestor: MindMapNode, node: MindMapNode):
-        # Checks if 'node' is a descendant of 'potential_ancestor'
-        # Walk up from 'node' to see if we hit 'potential_ancestor'
         if node.id == potential_ancestor.id:
-            return True # It is the same node
-
+            return True
         curr = node
         while curr.parent_id:
             if curr.parent_id == potential_ancestor.id:
@@ -261,3 +420,37 @@ class MindMapView(QGraphicsView):
             if not curr:
                 break
         return False
+
+    def start_crosslink(self, node: MindMapNode):
+        self.crosslink_source = node
+        self.refresh_scene()
+
+    def create_crosslink(self, source: MindMapNode, target: MindMapNode):
+        link = CrossLink(start_node_id=source.id, end_node_id=target.id)
+        self.mind_map.cross_links.append(link)
+        self.crosslink_source = None
+        self.main_window.save_current_map()
+        self.refresh_scene()
+
+    def edit_crosslink_label(self, link: CrossLink):
+        text, ok = QInputDialog.getText(self, "Edit Link Label", "Label:", text=link.label)
+        if ok:
+            link.label = text
+            self.main_window.save_current_map()
+            self.refresh_scene()
+
+    def delete_crosslink(self, link: CrossLink):
+        if link in self.mind_map.cross_links:
+            self.mind_map.cross_links.remove(link)
+            self.main_window.save_current_map()
+            self.refresh_scene()
+
+    def attach_image(self, node: MindMapNode):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Images (*.png *.jpg *.jpeg *.bmp)")
+        if file_path:
+            with open(file_path, "rb") as f:
+                data = f.read()
+                b64 = base64.b64encode(data).decode('utf-8')
+                node.images.append(b64)
+                self.main_window.save_current_map()
+                self.refresh_scene()

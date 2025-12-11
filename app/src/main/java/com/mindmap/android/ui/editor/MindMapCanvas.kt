@@ -1,7 +1,9 @@
 package com.mindmap.android.ui.editor
 
+import android.graphics.BitmapFactory
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.util.Base64
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -17,6 +19,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -35,28 +38,34 @@ import kotlin.math.min
 fun MindMapCanvas(
     mindMap: MindMap,
     selectedNodeId: String? = null,
-    onNodeClick: (String, Offset) -> Unit, // Changed to include Offset
+    onNodeClick: (String, Offset) -> Unit,
     onNodeLongClick: (String, Offset) -> Unit,
     onBackgroundTap: () -> Unit,
     onCrossLinkClick: (String, Offset) -> Unit,
-    onNodeDrop: (String, String) -> Unit, // draggedId, targetId
-    onToggleCollapse: (String) -> Unit, // New Callback
+    onNodeDrop: (String, String) -> Unit,
+    onToggleCollapse: (String) -> Unit,
+    onToggleCheckbox: (String) -> Unit, // New callback
     modifier: Modifier = Modifier
 ) {
-    // Transformations
     var offset by remember { mutableStateOf(Offset.Zero) }
     var scale by remember { mutableStateOf(1f) }
 
-    // Dragging State
     var draggingNodeId by remember { mutableStateOf<String?>(null) }
-    var dragOffset by remember { mutableStateOf(Offset.Zero) } // Screen coords offset from node center
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var hoverTargetId by remember { mutableStateOf<String?>(null) }
+
+    // Bitmap cache?
+    // In Compose Canvas, decoding bitmaps every frame is bad.
+    // Ideally we should have a ViewModel or cache holding these.
+    // For now, simple remember based cache might be okay if node list is stable?
+    // Or just simple cache map.
+    val bitmapCache = remember { mutableMapOf<String, androidx.compose.ui.graphics.ImageBitmap>() }
 
     val textPaint = remember {
         Paint().apply {
             color = android.graphics.Color.WHITE
             textSize = 40f
-            textAlign = Paint.Align.CENTER
+            textAlign = Paint.Align.LEFT // Changed to left for easier layout with checkbox
             typeface = Typeface.DEFAULT_BOLD
         }
     }
@@ -90,59 +99,48 @@ fun MindMapCanvas(
         modifier = modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                // Custom gesture detector for 1-finger drag (node) vs 2-finger pan/zoom (canvas)
                 forEachGesture {
                     awaitPointerEventScope {
                         val down = awaitFirstDown(requireUnconsumed = false)
 
-                        // Check if hitting a node
-                        // Convert touch to canvas coords
                         val canvasX = (down.position.x - size.width / 2 - offset.x) / scale
                         val canvasY = (down.position.y - size.height / 2 - offset.y) / scale
 
-                        // Check collapse button hit first?
-                        // Iterate visible nodes to find collapse button hits
-                        // Collapse button is drawn at Top-Right or Right side of node?
-                        // Let's assume it's a small circle at (node.x + width/2 + 20, node.y)
+                        // Check collapse button
                         val collapseHitId = findCollapseButtonAt(mindMap, canvasX, canvasY)
                         if (collapseHitId != null) {
                             down.consume()
-                            // Just toggle, no drag
                             onToggleCollapse(collapseHitId)
+                            return@awaitPointerEventScope
+                        }
+
+                        // Check checkbox
+                        val checkboxHitId = findCheckboxAt(mindMap, canvasX, canvasY)
+                        if (checkboxHitId != null) {
+                            down.consume()
+                            onToggleCheckbox(checkboxHitId)
                             return@awaitPointerEventScope
                         }
 
                         val hitNodeId = findNodeAt(mindMap, canvasX, canvasY)
 
                         if (hitNodeId != null) {
-                            // Potentially dragging node or clicking
                             var moved = false
                             drag(down.id) { change ->
                                 val count = currentEvent.changes.size
                                 if (count == 1) {
-                                    // 1 finger -> Drag Node
                                     change.consume()
                                     draggingNodeId = hitNodeId
                                     moved = true
-
-                                    // Update drag position (visual only)
-                                    // We track the delta
                                     dragOffset += change.positionChange()
 
-                                    // Hit test for hover target
-                                    // Calculate current finger pos in canvas
                                     val currX = (change.position.x - size.width / 2 - offset.x) / scale
                                     val currY = (change.position.y - size.height / 2 - offset.y) / scale
 
-                                    // Don't target self or descendants (cycle check done here or later?)
-                                    // Simple hit test first
                                     val target = findNodeAt(mindMap, currX, currY)
                                     hoverTargetId = if (target != hitNodeId) target else null
 
                                 } else {
-                                    // 2+ fingers -> Pan/Zoom
-                                    // If we were dragging a node, cancel it?
-                                    // Or just process pan/zoom
                                     draggingNodeId = null
                                     hoverTargetId = null
 
@@ -155,11 +153,9 @@ fun MindMapCanvas(
                                 }
                             }
 
-                            // Drag finished
                             if (draggingNodeId != null && hoverTargetId != null) {
                                 onNodeDrop(draggingNodeId!!, hoverTargetId!!)
                             } else if (!moved) {
-                                // Click logic - NOW PASSING OFFSET
                                 onNodeClick(hitNodeId, down.position)
                             }
 
@@ -168,8 +164,6 @@ fun MindMapCanvas(
                             hoverTargetId = null
 
                         } else {
-                            // Hit background or crosslink
-                            // Wait for potential drag or 2nd finger
                              var moved = false
                              drag(down.id) { change ->
                                  moved = true
@@ -181,7 +175,6 @@ fun MindMapCanvas(
                              }
 
                              if (!moved) {
-                                 // Check crosslinks
                                  val linkId = findCrossLinkAt(mindMap, canvasX, canvasY)
                                  if (linkId != null) {
                                      onCrossLinkClick(linkId, down.position)
@@ -197,8 +190,6 @@ fun MindMapCanvas(
         val centerX = size.width / 2 + offset.x
         val centerY = size.height / 2 + offset.y
 
-        // Recursively draw visible nodes and connections
-        // We start from root
         val root = mindMap.nodes[mindMap.rootNodeId]
         if (root != null) {
             drawNodeTree(
@@ -215,18 +206,17 @@ fun MindMapCanvas(
                 textPaint,
                 tagPaint,
                 notePaint,
-                collapsePaint
+                collapsePaint,
+                bitmapCache
             )
         }
 
-        // Draw Crosslinks (Red, with Arrow, and Label)
-        // Only draw links if both start and end are visible (not collapsed)
+        // Draw Crosslinks
         mindMap.crossLinks.forEach { link ->
             val start = mindMap.nodes[link.startNodeId]
             val end = mindMap.nodes[link.endNodeId]
 
             if (start != null && end != null && isVisible(mindMap, start.id) && isVisible(mindMap, end.id)) {
-                // Adjust for dragging
                 val sDx = if (start.id == draggingNodeId) dragOffset.x else 0f
                 val sDy = if (start.id == draggingNodeId) dragOffset.y else 0f
                 val eDx = if (end.id == draggingNodeId) dragOffset.x else 0f
@@ -244,7 +234,8 @@ fun MindMapCanvas(
                     color = Color.Red,
                     start = startPoint,
                     end = endPoint,
-                    strokeWidth = 3f * scale
+                    strokeWidth = 3f * scale,
+                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
                 )
 
                 val angle = atan2(endPoint.y - startPoint.y, endPoint.x - startPoint.x)
@@ -260,6 +251,7 @@ fun MindMapCanvas(
                     drawPath(path, Color.Red)
                 }
 
+                // Label
                 if (!link.label.isNullOrBlank()) {
                      val mx = (startPoint.x + endPoint.x) / 2
                      val my = (startPoint.y + endPoint.y) / 2
@@ -268,23 +260,7 @@ fun MindMapCanvas(
                         textPaint.textSize = 30f * scale
                         textPaint.color = android.graphics.Color.RED
                         textPaint.textAlign = Paint.Align.CENTER
-
-                        val boundRect = android.graphics.Rect()
-                        textPaint.getTextBounds(link.label!!, 0, link.label!!.length, boundRect)
-                        val bgPadding = 5f * scale
-                        val bgLeft = mx - boundRect.width()/2 - bgPadding
-                        val bgTop = my - boundRect.height() - bgPadding - 10f*scale
-                        val bgRight = mx + boundRect.width()/2 + bgPadding
-                        val bgBottom = my + bgPadding - 10f*scale
-
-                        val bgPaint = Paint().apply {
-                            color = android.graphics.Color.BLACK
-                            alpha = 150
-                            style = Paint.Style.FILL
-                        }
-                        canvas.nativeCanvas.drawRect(bgLeft, bgTop, bgRight, bgBottom, bgPaint)
-
-                        canvas.nativeCanvas.drawText(link.label!!, mx, my - 10f * scale, textPaint)
+                        canvas.nativeCanvas.drawText(link.label!!, mx, my, textPaint)
                      }
                 }
             }
@@ -306,7 +282,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
     textPaint: Paint,
     tagPaint: Paint,
     notePaint: Paint,
-    collapsePaint: Paint
+    collapsePaint: Paint,
+    bitmapCache: MutableMap<String, androidx.compose.ui.graphics.ImageBitmap>
 ) {
     val isDragging = (node.id == draggingNodeId)
     val dx = if (isDragging) dragOffset.x else 0f
@@ -315,22 +292,20 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
     val nx = node.x * scale + centerX + dx
     val ny = node.y * scale + centerY + dy
 
-    // Draw connections to children first (behind nodes)
-    // Only if not collapsed
     if (!node.isCollapsed) {
         node.children.forEach { childId ->
             val child = mindMap.nodes[childId] ?: return@forEach
-            // Calculate child pos
             val cx = child.x * scale + centerX
             val cy = child.y * scale + centerY
 
-            // Connection color (inherit or rainbow)
             val color = if (node.colorOverride != null) Color(node.colorOverride!!.toULong())
                         else if (node.id == mindMap.rootNodeId) Color.Gray
                         else RainbowColors[abs(node.id.hashCode()) % RainbowColors.size]
 
             val path = Path().apply {
                 moveTo(nx, ny)
+                // Different curve for tree?
+                // Just use same cubic for now, works fine.
                 cubicTo(
                     nx, ny + (cy - ny) / 2,
                     cx, cy - (cy - ny) / 2,
@@ -344,12 +319,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
                 style = Stroke(width = 5f * scale)
             )
 
-            // Recursive Draw
-            drawNodeTree(scope, child, mindMap, centerX, centerY, scale, draggingNodeId, dragOffset, hoverTargetId, selectedNodeId, textPaint, tagPaint, notePaint, collapsePaint)
+            drawNodeTree(scope, child, mindMap, centerX, centerY, scale, draggingNodeId, dragOffset, hoverTargetId, selectedNodeId, textPaint, tagPaint, notePaint, collapsePaint, bitmapCache)
         }
     }
 
-    // Now Draw Node
     val nWidth = node.width * scale
     val nHeight = node.height * scale
     val left = nx - nWidth / 2
@@ -384,16 +357,6 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
         )
     }
 
-    if (isHoverTarget) {
-        scope.drawRoundRect(
-            color = Color.Green,
-            topLeft = Offset(left, top),
-            size = Size(nWidth, nHeight),
-            cornerRadius = CornerRadius(16f * scale, 16f * scale),
-            style = Stroke(width = 8f * scale)
-        )
-    }
-
     scope.drawRoundRect(
         color = Color.DarkGray,
         topLeft = Offset(left, top),
@@ -401,27 +364,105 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
         cornerRadius = CornerRadius(16f * scale, 16f * scale)
     )
 
+    // Draw Content
+
+    var currentY = top + 20f * scale
+    val paddingX = 10f * scale
+
+    // Images
+    if (node.images.isNotEmpty()) {
+        val b64 = node.images[0]
+        // Cache check
+        // Key by hash of b64 or just ID? Image might change so better to not cache by ID alone if images mutable.
+        // Assuming images append only or replace. Let's use simple check.
+        // Or hash the b64.
+        val cacheKey = "${node.id}_${b64.hashCode()}"
+        var bmp = bitmapCache[cacheKey]
+        if (bmp == null) {
+            try {
+                val decoded = Base64.decode(b64, Base64.DEFAULT)
+                val androidBmp = BitmapFactory.decodeByteArray(decoded, 0, decoded.size)
+                if (androidBmp != null) {
+                    bmp = androidBmp.asImageBitmap()
+                    bitmapCache[cacheKey] = bmp
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        if (bmp != null) {
+            // Scale to fit width
+            val aspect = bmp.width.toFloat() / bmp.height.toFloat()
+            val targetW = nWidth - paddingX * 2
+            val targetH = targetW / aspect
+            // Clamp height?
+            val drawH = if (targetH > 100f*scale) 100f*scale else targetH
+            val drawW = drawH * aspect // Keep aspect ratio
+
+            scope.drawImage(
+                image = bmp,
+                dstOffset = androidx.compose.ui.unit.IntOffset(
+                    (left + (nWidth - drawW)/2).toInt(),
+                    currentY.toInt()
+                ),
+                dstSize = androidx.compose.ui.unit.IntSize(drawW.toInt(), drawH.toInt())
+            )
+            currentY += drawH + 10f*scale
+        }
+    }
+
+    val textX: Float
+    // Checkbox
+    if (node.isTodo) {
+        val cbSize = 30f * scale
+        val cbX = left + paddingX
+        val cbY = currentY
+
+        scope.drawRect(
+            color = Color.Black,
+            topLeft = Offset(cbX, cbY),
+            size = Size(cbSize, cbSize),
+            style = Stroke(width = 2f * scale)
+        )
+        if (node.isChecked) {
+             scope.drawRect(
+                color = Color.Green,
+                topLeft = Offset(cbX + 4f*scale, cbY + 4f*scale),
+                size = Size(cbSize - 8f*scale, cbSize - 8f*scale)
+            )
+        }
+        textX = cbX + cbSize + 10f * scale
+        // Align text vertically with checkbox
+    } else {
+        textX = left + paddingX
+    }
+
     scope.drawIntoCanvas { canvas ->
         textPaint.textSize = 40f * scale
         textPaint.color = android.graphics.Color.WHITE
+        textPaint.textAlign = Paint.Align.LEFT
 
-        val textYOffset = if (node.tags.isNotEmpty()) -15f * scale else 15f * scale
+        // Vertically center text in line?
+        val fm = textPaint.fontMetrics
+        val h = fm.descent - fm.ascent
 
-        canvas.nativeCanvas.drawText(node.text, nx, ny + textYOffset, textPaint)
+        canvas.nativeCanvas.drawText(node.text, textX, currentY - fm.ascent, textPaint)
+
+        currentY += h + 10f * scale
 
         if (!node.note.isNullOrBlank()) {
              notePaint.textSize = 25f * scale
+             // Draw icon top right
              canvas.nativeCanvas.drawText("📝", nx + nWidth/2 - 20f*scale, ny - nHeight/2 + 30f*scale, notePaint)
         }
 
         if (node.tags.isNotEmpty()) {
             tagPaint.textSize = 30f * scale
-            val tagsY = ny + 35f * scale
             val tagsString = node.tags.joinToString(", ") { "#$it" }
-            canvas.nativeCanvas.drawText(tagsString, nx, tagsY, tagPaint)
+            canvas.nativeCanvas.drawText(tagsString, left + paddingX, currentY - tagPaint.fontMetrics.ascent, tagPaint)
         }
 
-        // Draw Collapse/Expand Button if children exist
         if (node.children.isNotEmpty()) {
             val indicator = if (node.isCollapsed) "+" else "-"
             val btnX = nx + nWidth/2 + 10f*scale
@@ -442,7 +483,6 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
             canvas.nativeCanvas.drawCircle(btnX, btnY, btnRadius, paintStroke)
 
             collapsePaint.textSize = 30f * scale
-            // Centering text vertically
             val bounds = android.graphics.Rect()
             collapsePaint.getTextBounds(indicator, 0, indicator.length, bounds)
             val ty = btnY + bounds.height()/2f
@@ -452,13 +492,11 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
     }
 }
 
-// Check visibility helper
 fun isVisible(mindMap: MindMap, nodeId: String): Boolean {
-    // Walk up to root. If any parent is collapsed, then not visible.
     var currentId = nodeId
     while(currentId != mindMap.rootNodeId) {
         val node = mindMap.nodes[currentId] ?: return false
-        val parentId = node.parentId ?: return (currentId == mindMap.rootNodeId) // Should not happen for non-root
+        val parentId = node.parentId ?: return (currentId == mindMap.rootNodeId)
         val parent = mindMap.nodes[parentId] ?: return false
         if (parent.isCollapsed) return false
         currentId = parentId
@@ -489,16 +527,7 @@ private fun getRectIntersection(cx: Float, cy: Float, tx: Float, ty: Float, w: F
     return Offset(cx + dx * t, cy + dy * t)
 }
 
-// ... helper methods findNodeAt, etc. need update to ignore collapsed children?
-// Actually findNodeAt iterates all nodes. We should only hit test visible nodes.
 private fun findNodeAt(mindMap: MindMap, x: Float, y: Float): String? {
-    // Better: traverse starting from root, respecting collapsed state?
-    // Or iterate all and check isVisible?
-    // Iterating all is O(N), checking isVisible is O(Depth). Total O(N*Depth).
-    // Traversing tree is O(VisibleNodes).
-    // Let's iterate all but check visibility quickly.
-    // Or just use the getVisibleNodes helper from Layout if we moved it to Model/Utils?
-    // For now, simple check:
     for (node in mindMap.nodes.values) {
         if (!isVisible(mindMap, node.id)) continue
 
@@ -513,20 +542,38 @@ private fun findNodeAt(mindMap: MindMap, x: Float, y: Float): String? {
 }
 
 private fun findCollapseButtonAt(mindMap: MindMap, x: Float, y: Float): String? {
-    val radius = 30f // approx hit radius
     for (node in mindMap.nodes.values) {
         if (node.children.isEmpty()) continue
         if (!isVisible(mindMap, node.id)) continue
 
-        val btnX = node.x + node.width/2 + 10f // Scale handled by caller passing canvas coords?
-        // Wait, caller passes canvasX/Y which are unscaled?
-        // No, caller logic: val canvasX = (down.x - offset.x) / scale. So we compare with node.x (unscaled).
-        // Hit radius should be unscaled too?
-        // Drawn radius is 15f * scale. So in model coords it is 15f.
-
+        val btnX = node.x + node.width/2 + 10f
         val btnY = node.y
         val dist = hypot(x - btnX, y - btnY)
-        if (dist <= 30f) { // slightly larger hit area
+        if (dist <= 30f) {
+            return node.id
+        }
+    }
+    return null
+}
+
+private fun findCheckboxAt(mindMap: MindMap, x: Float, y: Float): String? {
+     for (node in mindMap.nodes.values) {
+        if (!node.isTodo) continue
+        if (!isVisible(mindMap, node.id)) continue
+
+        // Checkbox pos: left + padding, top + 20 + images height
+        val paddingX = 10f
+        val left = node.x - node.width/2
+        val top = node.y - node.height/2
+
+        var imgH = 0f
+        if (node.images.isNotEmpty()) imgH = 120f // approx logic from layout
+
+        val cbX = left + paddingX
+        val cbY = top + 20f + imgH // approx
+        val cbSize = 30f
+
+        if (x >= cbX && x <= cbX + cbSize && y >= cbY && y <= cbY + cbSize) {
             return node.id
         }
     }
