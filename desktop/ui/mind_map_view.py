@@ -5,11 +5,10 @@ from PySide6.QtWidgets import (QGraphicsView, QGraphicsScene, QGraphicsItem,
                                QMenu, QGraphicsSceneMouseEvent, QFileDialog, QGraphicsPixmapItem,
                                QInputDialog)
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QByteArray
-from PySide6.QtGui import QPen, QBrush, QColor, QPainterPath, QFont, QPainter, QPixmap
+from PySide6.QtGui import QPen, QBrush, QColor, QPainterPath, QFont, QPainter, QPixmap, QWheelEvent
 
 from model import MindMap, MindMapNode, CrossLink
 from utils import MindMapLayout
-from ui.node_edit_dialog import NodeEditDialog
 
 class NodeItem(QGraphicsRectItem):
     def __init__(self, node: MindMapNode, view):
@@ -110,6 +109,10 @@ class NodeItem(QGraphicsRectItem):
             self.collapse_indicator.setPen(QPen(Qt.black))
 
     def mousePressEvent(self, event):
+        # Notify view of selection (explicitly for single clicks that might not trigger standard selection change if re-clicking)
+        if event.button() == Qt.LeftButton:
+             self.view.node_selected.emit(self.node)
+
         if event.button() == Qt.LeftButton:
             # Check for collapse click
             if hasattr(self, 'collapse_indicator') and self.collapse_indicator.isUnderMouse():
@@ -139,7 +142,10 @@ class NodeItem(QGraphicsRectItem):
 
     def contextMenuEvent(self, event):
         menu = QMenu()
-        edit_action = menu.addAction("Edit Details...")
+        # "Edit Details" removed from context menu as we now have Dock Panel?
+        # User said "detail manager... missing future is zoom".
+        # Keeping context menu is fine, maybe rename to "Select in Detail View" or just keep it.
+        # Let's keep common actions.
 
         if self.node.is_todo:
             toggle_chk = menu.addAction("Toggle Checked")
@@ -151,9 +157,7 @@ class NodeItem(QGraphicsRectItem):
 
         action = menu.exec(event.screenPos())
 
-        if action == edit_action:
-            self.view.edit_node_details(self.node)
-        elif self.node.is_todo and action == toggle_chk:
+        if self.node.is_todo and action == toggle_chk:
             self.view.toggle_checkbox(self.node)
         elif action == add_child_action:
             self.view.add_child_node(self.node)
@@ -220,10 +224,6 @@ class CrossLinkItem(QGraphicsPathItem):
             txt.setDefaultTextColor(Qt.red)
             txt.setPos(mid)
 
-        # Enable selection for context menu
-        # QGraphicsPathItem hit test uses path stroke. Thick pen helps.
-        # But we need to override shape() or use a wider invisible path if selection is hard.
-        # For now, let's assume DashLine is clickable.
         self.setFlag(QGraphicsItem.ItemIsSelectable)
 
     def contextMenuEvent(self, event):
@@ -239,6 +239,8 @@ class CrossLinkItem(QGraphicsPathItem):
             self.view.delete_crosslink(self.link)
 
 class MindMapView(QGraphicsView):
+    node_selected = Signal(MindMapNode) # Signal to notify panels
+
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
@@ -247,12 +249,30 @@ class MindMapView(QGraphicsView):
         self.setRenderHint(QPainter.Antialiasing)
         self.setDragMode(QGraphicsView.ScrollHandDrag)
 
+        # Enable Mouse Tracking for hover?
+        # self.setMouseTracking(True)
+
         self.mind_map: MindMap = None
         self.crosslink_source: MindMapNode = None
 
     def set_mind_map(self, mind_map: MindMap):
         self.mind_map = mind_map
         self.refresh_scene()
+
+    def wheelEvent(self, event: QWheelEvent):
+        # Zoom with Ctrl + Wheel or just Wheel?
+        # Standard behaviour usually just wheel for zoom if not scrolling,
+        # but ScrollHandDrag usually means we drag to pan.
+        # Let's support Ctrl+Wheel for zoom or just Wheel if drag mode active?
+
+        # If modifiers
+        if event.modifiers() & Qt.ControlModifier:
+            zoom_in = event.angleDelta().y() > 0
+            factor = 1.2 if zoom_in else 1 / 1.2
+            self.scale(factor, factor)
+            event.accept()
+        else:
+            super().wheelEvent(event)
 
     def refresh_scene(self):
         if not self.mind_map:
@@ -285,12 +305,6 @@ class MindMapView(QGraphicsView):
                     item.setPen(QPen(Qt.red, 3))
                 self.scene.addItem(item)
 
-                # Check for click if in crosslink mode
-                if self.crosslink_source:
-                    # Hijack click in item? Handled in mousePress?
-                    # easier to handle at View level?
-                    pass
-
         # Update Scene Rect
         self.scene.setSceneRect(self.scene.itemsBoundingRect())
 
@@ -302,6 +316,10 @@ class MindMapView(QGraphicsView):
             txt.setPos(self.scene.sceneRect().topLeft())
 
     def mousePressEvent(self, event):
+        # Clear selection signal if clicked background
+        if not self.itemAt(event.pos()):
+            self.node_selected.emit(None)
+
         if self.crosslink_source:
              item = self.itemAt(event.pos())
              if isinstance(item, NodeItem):
@@ -355,18 +373,6 @@ class MindMapView(QGraphicsView):
         self.main_window.save_current_map()
         self.refresh_scene()
 
-    def edit_node_details(self, node: MindMapNode):
-        dialog = NodeEditDialog(self, node)
-        if dialog.exec():
-            vals = dialog.get_values()
-            node.text = vals["text"]
-            node.note = vals["note"]
-            node.tags = vals["tags"]
-            node.is_todo = vals["is_todo"]
-            node.color_override = vals["color_override"]
-            self.main_window.save_current_map()
-            self.refresh_scene()
-
     def add_child_node(self, parent: MindMapNode):
         new_node = MindMapNode(text="New Child", parent_id=parent.id)
         new_node.x = parent.x + 50
@@ -387,6 +393,7 @@ class MindMapView(QGraphicsView):
         self.remove_subtree(node)
         self.main_window.save_current_map()
         self.refresh_scene()
+        self.node_selected.emit(None) # Deselect deleted
 
     def remove_subtree(self, node: MindMapNode):
         for child_id in list(node.children):

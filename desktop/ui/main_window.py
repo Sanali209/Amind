@@ -2,18 +2,19 @@ import os
 import shutil
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QListWidget, QListWidgetItem, QFileDialog,
-                               QMessageBox, QLabel, QSplitter, QToolBar)
+                               QMessageBox, QLabel, QSplitter, QToolBar, QDockWidget)
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QIcon
 from model import MindMap, MindMapNode
 from utils import FileHelper
 from ui.mind_map_view import MindMapView
+from ui.panels import LibraryPanel, NodeDetailPanel
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MindMap Desktop")
-        self.resize(1000, 700)
+        self.resize(1200, 800)
 
         self.storage_path = os.path.expanduser("~/Documents/MindMaps")
         if not os.path.exists(self.storage_path):
@@ -21,7 +22,7 @@ class MainWindow(QMainWindow):
 
         self.current_mind_map: MindMap = None
 
-        # Toolbar
+        # --- Toolbar ---
         toolbar = QToolBar("Main Toolbar")
         self.addToolBar(toolbar)
 
@@ -33,63 +34,62 @@ class MainWindow(QMainWindow):
         export_md_action.triggered.connect(self.export_markdown)
         toolbar.addAction(export_md_action)
 
-        # Central Widget
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
+        toolbar.addSeparator()
 
-        # Splitter
-        splitter = QSplitter(Qt.Horizontal)
-        main_layout.addWidget(splitter)
+        zoom_in_action = QAction("Zoom In", self)
+        zoom_in_action.triggered.connect(self.zoom_in)
+        toolbar.addAction(zoom_in_action)
 
-        # Left Panel (Library)
-        library_widget = QWidget()
-        library_layout = QVBoxLayout(library_widget)
+        zoom_out_action = QAction("Zoom Out", self)
+        zoom_out_action.triggered.connect(self.zoom_out)
+        toolbar.addAction(zoom_out_action)
 
-        library_label = QLabel("Library")
-        library_layout.addWidget(library_label)
-
-        self.map_list = QListWidget()
-        self.map_list.itemClicked.connect(self.on_map_selected)
-        library_layout.addWidget(self.map_list)
-
-        btn_layout = QHBoxLayout()
-        new_btn = QPushButton("New")
-        new_btn.clicked.connect(self.create_new_map)
-        btn_layout.addWidget(new_btn)
-
-        import_btn = QPushButton("Import")
-        import_btn.clicked.connect(self.import_map)
-        btn_layout.addWidget(import_btn)
-
-        library_layout.addLayout(btn_layout)
-
-        splitter.addWidget(library_widget)
-
-        # Right Panel (Mind Map View)
+        # --- Central Widget (Mind Map View) ---
         self.mind_map_view = MindMapView(self)
-        splitter.addWidget(self.mind_map_view)
-        splitter.setSizes([250, 750])
+        self.setCentralWidget(self.mind_map_view)
 
-        self.refresh_library()
+        # Connect Selection Signal
+        self.mind_map_view.node_selected.connect(self.on_node_selected)
 
-    def refresh_library(self):
-        self.map_list.clear()
-        maps = FileHelper.list_mind_maps(self.storage_path)
-        for m in maps:
-            item = QListWidgetItem(m.title)
-            item.setData(Qt.UserRole, m.id)
-            self.map_list.addItem(item)
+        # --- Dock: Library ---
+        self.library_dock = QDockWidget("Library", self)
+        self.library_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.library_panel = LibraryPanel(self.storage_path)
+
+        # Connect Panel Signals
+        self.library_panel.map_selected.connect(self.load_map)
+        self.library_panel.create_map_requested.connect(self.create_new_map)
+        self.library_panel.import_map_requested.connect(self.import_map)
+
+        self.library_dock.setWidget(self.library_panel)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.library_dock)
+
+        # --- Dock: Detail Manager ---
+        self.detail_dock = QDockWidget("Detail Manager", self)
+        self.detail_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.detail_panel = NodeDetailPanel()
+
+        # Connect Panel Signals
+        self.detail_panel.node_updated.connect(self.on_node_updated)
+
+        self.detail_dock.setWidget(self.detail_panel)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
+
+        # --- Menu Bar (View Menu) ---
+        menu_bar = self.menuBar()
+        view_menu = menu_bar.addMenu("View")
+
+        # Toggle Docks Actions
+        view_menu.addAction(self.library_dock.toggleViewAction())
+        view_menu.addAction(self.detail_dock.toggleViewAction())
+
+        self.library_panel.refresh()
 
     def create_new_map(self):
         new_map = MindMap.create_default()
         FileHelper.save_mind_map(new_map, self.storage_path)
-        self.refresh_library()
+        self.library_panel.refresh()
         self.load_map(new_map.id)
-
-    def on_map_selected(self, item):
-        map_id = item.data(Qt.UserRole)
-        self.load_map(map_id)
 
     def load_map(self, map_id):
         filename = f"{map_id}.json"
@@ -97,6 +97,8 @@ class MainWindow(QMainWindow):
         if os.path.exists(filepath):
             self.current_mind_map = FileHelper.load_mind_map(filepath)
             self.mind_map_view.set_mind_map(self.current_mind_map)
+            # Clear selection details
+            self.detail_panel.set_node(None)
 
     def import_map(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Import Mind Map", "", "JSON Files (*.json)")
@@ -125,7 +127,7 @@ class MainWindow(QMainWindow):
 
             if should_save:
                 FileHelper.save_mind_map(imported_map, self.storage_path)
-                self.refresh_library()
+                self.library_panel.refresh()
                 QMessageBox.information(self, "Success", "Mind Map imported successfully.")
 
         except Exception as e:
@@ -160,3 +162,20 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Success", "Export successful.")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to export: {e}")
+
+    def on_node_selected(self, node):
+        self.detail_panel.set_node(node)
+
+    def on_node_updated(self, node):
+        # Triggered by Detail Panel Apply
+        if self.current_mind_map:
+            if node.id == self.current_mind_map.root_node_id:
+                self.current_mind_map.title = node.text
+            self.save_current_map()
+            self.mind_map_view.refresh_scene()
+
+    def zoom_in(self):
+        self.mind_map_view.scale(1.2, 1.2)
+
+    def zoom_out(self):
+        self.mind_map_view.scale(1/1.2, 1/1.2)
