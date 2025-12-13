@@ -47,6 +47,71 @@ class FileHelper:
         if os.path.exists(filepath):
             os.remove(filepath)
 
+    @staticmethod
+    def export_to_markdown(mind_map: MindMap) -> str:
+        sb = []
+        sb.append(f"# {mind_map.title}\n\n")
+
+        root = mind_map.nodes.get(mind_map.root_node_id)
+        if root:
+            FileHelper.traverse_node_for_markdown(root, mind_map, 0, sb)
+
+        # Append Crosslinks section if any
+        if mind_map.cross_links:
+            sb.append("\n## Cross Links\n")
+            for link in mind_map.cross_links:
+                start = mind_map.nodes.get(link.start_node_id)
+                end = mind_map.nodes.get(link.end_node_id)
+                if start and end:
+                    label = link.label if link.label else "Link"
+                    sb.append(f"- {start.text} --{label}--> {end.text}")
+                    if link.note:
+                        sb.append(f"\n  > {link.note}")
+                    sb.append("\n")
+
+        # Append Tags Index
+        tags_map = {} # Tag -> List of Node Names
+        for node in mind_map.nodes.values():
+            for tag in node.tags:
+                if tag not in tags_map:
+                    tags_map[tag] = []
+                tags_map[tag].append(node.text)
+
+        if tags_map:
+            sb.append("\n## Tags\n")
+            for tag, nodes in tags_map.items():
+                sb.append(f"- **#{tag}**: {', '.join(nodes)}\n")
+
+        return "".join(sb)
+
+    @staticmethod
+    def traverse_node_for_markdown(node: MindMapNode, mind_map: MindMap, level: int, sb: List[str]):
+        # Indentation
+        indent = "  " * level
+        sb.append(indent)
+
+        # Checkbox logic
+        if node.is_todo:
+            mark = "x" if node.is_checked else " "
+            sb.append(f"- [{mark}] {node.text}")
+        else:
+            sb.append(f"- {node.text}")
+
+        # Tags inline?
+        if node.tags:
+            tags_str = " ".join([f"#{t}" for t in node.tags])
+            sb.append(f" {tags_str}")
+        sb.append("\n")
+
+        # Notes as blockquote or just text under
+        if node.note:
+            sb.append(f"{indent}  > {node.note}\n")
+
+        for child_id in node.children:
+            child = mind_map.nodes.get(child_id)
+            if child:
+                FileHelper.traverse_node_for_markdown(child, mind_map, level + 1, sb)
+
 class MindMapLayout:
     LEVEL_DISTANCE_BASE = 300.0
     MIN_NODE_WIDTH = 100.0
@@ -68,33 +133,124 @@ class MindMapLayout:
         for node in mind_map.nodes.values():
             MindMapLayout.calculate_node_size(node, font_metrics)
 
-        # 1. Calculate weights
-        weights = {}
-        MindMapLayout.calculate_weights(root, mind_map, weights)
+        if getattr(mind_map, 'layout_type', "RADIAL") == "TREE":
+             MindMapLayout.layout_tree(mind_map)
+        else:
+             # Radial Layout
+             # 1. Calculate weights
+             weights = {}
+             MindMapLayout.calculate_weights(root, mind_map, weights)
 
-        # 2. Position Nodes (Radial)
+             # 2. Position Nodes (Radial)
+             root.x = 0.0
+             root.y = 0.0
+
+             current_angle = 0.0
+             total_weight = weights.get(root.id, 1)
+
+             if not root.is_collapsed:
+                 for child_id in root.children:
+                     child = mind_map.nodes.get(child_id)
+                     if not child:
+                         continue
+
+                     child_weight = weights.get(child_id, 1)
+                     sweep = (child_weight / total_weight) * 2 * math.pi
+                     mid_angle = current_angle + sweep / 2.0
+
+                     MindMapLayout.layout_node(child, mind_map, weights, mid_angle, sweep, 1)
+
+                     current_angle += sweep
+
+             # 3. Collision Resolution
+             MindMapLayout.resolve_collisions(mind_map)
+
+    @staticmethod
+    def layout_tree(mind_map: MindMap):
+        root = mind_map.nodes.get(mind_map.root_node_id)
+        if not root: return
         root.x = 0.0
         root.y = 0.0
 
-        current_angle = 0.0
-        total_weight = weights.get(root.id, 1)
+        if root.is_collapsed or not root.children: return
 
-        if not root.is_collapsed:
-            for child_id in root.children:
-                child = mind_map.nodes.get(child_id)
-                if not child:
-                    continue
+        right_children = []
+        left_children = []
+        for i, child_id in enumerate(root.children):
+            if i % 2 == 0:
+                right_children.append(child_id)
+            else:
+                left_children.append(child_id)
 
-                child_weight = weights.get(child_id, 1)
-                sweep = (child_weight / total_weight) * 2 * math.pi
-                mid_angle = current_angle + sweep / 2.0
+        # Layout Right
+        right_height = MindMapLayout.calculate_tree_height(right_children, mind_map)
+        MindMapLayout.layout_tree_side(right_children, mind_map, 1, -right_height / 2.0)
 
-                MindMapLayout.layout_node(child, mind_map, weights, mid_angle, sweep, 1)
+        # Layout Left
+        left_height = MindMapLayout.calculate_tree_height(left_children, mind_map)
+        MindMapLayout.layout_tree_side(left_children, mind_map, -1, -left_height / 2.0)
 
-                current_angle += sweep
+    @staticmethod
+    def calculate_tree_height(children: List[str], mind_map: MindMap) -> float:
+        h = 0.0
+        for child_id in children:
+            h += MindMapLayout.calculate_subtree_height(child_id, mind_map)
+        return h
 
-        # 3. Collision Resolution
-        MindMapLayout.resolve_collisions(mind_map)
+    @staticmethod
+    def calculate_subtree_height(node_id: str, mind_map: MindMap) -> float:
+        node = mind_map.nodes.get(node_id)
+        if not node: return 0.0
+        if node.is_collapsed or not node.children:
+            return node.height + MindMapLayout.GAP
+
+        children_height = 0.0
+        for child_id in node.children:
+            children_height += MindMapLayout.calculate_subtree_height(child_id, mind_map)
+
+        return max(node.height + MindMapLayout.GAP, children_height)
+
+    @staticmethod
+    def layout_tree_side(children: List[str], mind_map: MindMap, direction: int, start_y: float):
+        current_y = start_y
+        for child_id in children:
+            node = mind_map.nodes.get(child_id)
+            if not node: continue
+
+            node_h = MindMapLayout.calculate_subtree_height(child_id, mind_map)
+            child_y = current_y + node_h / 2.0
+
+            root = mind_map.nodes.get(mind_map.root_node_id)
+            node_x = direction * (root.width / 2.0 + 300.0/2.0 + node.width / 2.0)
+
+            node.x = node_x
+            node.y = child_y
+
+            if not node.is_collapsed and node.children:
+                MindMapLayout.layout_tree_children(node, mind_map, direction)
+
+            current_y += node_h
+
+    @staticmethod
+    def layout_tree_children(parent: MindMapNode, mind_map: MindMap, direction: int):
+        total_children_height = MindMapLayout.calculate_tree_height(parent.children, mind_map)
+        current_y = parent.y - total_children_height / 2.0
+
+        for child_id in parent.children:
+            child = mind_map.nodes.get(child_id)
+            if not child: continue
+
+            child_h = MindMapLayout.calculate_subtree_height(child_id, mind_map)
+            child_y = current_y + child_h / 2.0
+            child_x = parent.x + direction * (parent.width / 2.0 + 100.0 + child.width / 2.0)
+
+            child.x = child_x
+            child.y = child_y
+
+            if not child.is_collapsed and child.children:
+                MindMapLayout.layout_tree_children(child, mind_map, direction)
+
+            current_y += child_h
 
     @staticmethod
     def calculate_node_size(node: MindMapNode, font_metrics):
@@ -106,6 +262,23 @@ class MindMapLayout:
             text_width = len(node.text) * 8
             text_height = 20
 
+        # Images
+        image_height = 0
+        image_width = 0
+        if node.images:
+             # Assume single image for layout purposes or stack them
+             # Fixed size for now to match rendering assumption
+             image_height = 100.0 + MindMapLayout.GAP
+             image_width = 100.0
+
+        # Checkbox
+        checkbox_height = 0
+        checkbox_width = 0
+        if node.is_todo:
+            checkbox_height = 30.0 + MindMapLayout.GAP
+            checkbox_width = 30.0
+
+        # Tags
         tags_width = 0
         tags_height = 0
         if node.tags:
@@ -115,8 +288,8 @@ class MindMapLayout:
                 tag_w = len(tag) * 7 + 20 # padding
                 tags_width += tag_w # assuming single line for simplicity or max logic
 
-        content_width = max(text_width, tags_width)
-        content_height = text_height + tags_height
+        content_width = max(text_width, tags_width, image_width, checkbox_width)
+        content_height = image_height + checkbox_height + text_height + tags_height
 
         node.width = max(MindMapLayout.MIN_NODE_WIDTH, content_width + MindMapLayout.PADDING * 2)
         node.height = max(MindMapLayout.MIN_NODE_HEIGHT, content_height + MindMapLayout.PADDING * 2)

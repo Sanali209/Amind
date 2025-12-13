@@ -54,11 +54,36 @@ class MainWindow(QMainWindow):
         splitter.addWidget(library_widget)
 
         # Right Panel (Mind Map View)
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Toolbar for Layout Switch
+        toolbar = QHBoxLayout()
+        toolbar.addStretch()
+
+        self.layout_btn = QPushButton("Switch Layout")
+        self.layout_btn.clicked.connect(self.toggle_layout)
+        toolbar.addWidget(self.layout_btn)
+
+        right_layout.addLayout(toolbar)
+
         self.mind_map_view = MindMapView(self)
-        splitter.addWidget(self.mind_map_view)
+        right_layout.addWidget(self.mind_map_view)
+
+        splitter.addWidget(right_panel)
         splitter.setSizes([250, 750])
 
         self.refresh_library()
+
+    def toggle_layout(self):
+        if self.current_mind_map:
+             if self.current_mind_map.layout_type == "RADIAL":
+                 self.current_mind_map.layout_type = "TREE"
+             else:
+                 self.current_mind_map.layout_type = "RADIAL"
+             self.save_current_map()
+             self.mind_map_view.refresh_scene()
 
     def refresh_library(self):
         self.map_list.clear()
