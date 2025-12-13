@@ -56,34 +56,46 @@ class MainWindow(QMainWindow):
         self.library_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.library_panel = LibraryPanel(self.storage_path)
 
-        # Connect Panel Signals
-        self.library_panel.map_selected.connect(self.load_map)
-        self.library_panel.create_map_requested.connect(self.create_new_map)
-        self.library_panel.import_map_requested.connect(self.import_map)
+        # Right Panel (Mind Map View)
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.library_dock.setWidget(self.library_panel)
-        self.addDockWidget(Qt.LeftDockWidgetArea, self.library_dock)
+        # Toolbar for Layout Switch
+        toolbar = QHBoxLayout()
+        toolbar.addStretch()
 
-        # --- Dock: Detail Manager ---
-        self.detail_dock = QDockWidget("Detail Manager", self)
-        self.detail_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
-        self.detail_panel = NodeDetailPanel()
+        self.layout_btn = QPushButton("Switch Layout")
+        self.layout_btn.clicked.connect(self.toggle_layout)
+        toolbar.addWidget(self.layout_btn)
 
-        # Connect Panel Signals
-        self.detail_panel.node_updated.connect(self.on_node_updated)
+        right_layout.addLayout(toolbar)
+
+        self.mind_map_view = MindMapView(self)
+        right_layout.addWidget(self.mind_map_view)
+
+        splitter.addWidget(right_panel)
+        splitter.setSizes([250, 750])
 
         self.detail_dock.setWidget(self.detail_panel)
         self.addDockWidget(Qt.RightDockWidgetArea, self.detail_dock)
 
-        # --- Menu Bar (View Menu) ---
-        menu_bar = self.menuBar()
-        view_menu = menu_bar.addMenu("View")
+    def toggle_layout(self):
+        if self.current_mind_map:
+             if self.current_mind_map.layout_type == "RADIAL":
+                 self.current_mind_map.layout_type = "TREE"
+             else:
+                 self.current_mind_map.layout_type = "RADIAL"
+             self.save_current_map()
+             self.mind_map_view.refresh_scene()
 
-        # Toggle Docks Actions
-        view_menu.addAction(self.library_dock.toggleViewAction())
-        view_menu.addAction(self.detail_dock.toggleViewAction())
-
-        self.library_panel.refresh()
+    def refresh_library(self):
+        self.map_list.clear()
+        maps = FileHelper.list_mind_maps(self.storage_path)
+        for m in maps:
+            item = QListWidgetItem(m.title)
+            item.setData(Qt.UserRole, m.id)
+            self.map_list.addItem(item)
 
     def create_new_map(self):
         new_map = MindMap.create_default()

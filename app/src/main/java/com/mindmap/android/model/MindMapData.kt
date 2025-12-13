@@ -16,7 +16,8 @@ data class MindMapNode(
     var colorOverride: Long? = null,
     val tags: MutableList<String> = mutableListOf(),
     var isCollapsed: Boolean = false,
-    val images: MutableList<String> = mutableListOf(), // Base64 strings
+    // New fields
+    val images: MutableList<String> = mutableListOf(), // Base64 encoded strings
     var isTodo: Boolean = false,
     var isChecked: Boolean = false
 )
@@ -25,7 +26,8 @@ data class CrossLink(
     val id: String = UUID.randomUUID().toString(),
     val startNodeId: String,
     val endNodeId: String,
-    var label: String? = null
+    var label: String? = null,
+    var note: String? = null
 )
 
 data class MindMap(
@@ -35,7 +37,7 @@ data class MindMap(
     val nodes: MutableMap<String, MindMapNode> = mutableMapOf(),
     val crossLinks: MutableList<CrossLink> = mutableListOf(),
     var lastModified: Long = System.currentTimeMillis(),
-    var layoutType: String = "RADIAL"
+    var layoutType: String = "RADIAL" // "RADIAL" or "TREE"
 ) {
     // Helper to create a default map
     companion object {
