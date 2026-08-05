@@ -38,6 +38,7 @@ import kotlin.math.min
 fun MindMapCanvas(
     mindMap: MindMap,
     selectedNodeId: String? = null,
+    highlightedNodeId: String? = null,
     onNodeClick: (String, Offset) -> Unit,
     onNodeLongClick: (String, Offset) -> Unit,
     onBackgroundTap: () -> Unit,
@@ -48,6 +49,19 @@ fun MindMapCanvas(
 ) {
     var offset by remember { mutableStateOf(Offset.Zero) }
     var scale by remember { mutableStateOf(1f) }
+
+    LaunchedEffect(highlightedNodeId) {
+        if (highlightedNodeId != null) {
+            val targetNode = mindMap.nodes[highlightedNodeId]
+            if (targetNode != null) {
+                // We want the node to be at the center.
+                // The canvas translation logic uses: x = (targetX * scale + centerX + offset.x)
+                // We want that translated x to equal canvas center (size.width / 2)
+                // So, offset.x = - (targetNode.x * scale)
+                offset = Offset(-targetNode.x * scale, -targetNode.y * scale)
+            }
+        }
+    }
 
     var draggingNodeId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
@@ -213,7 +227,7 @@ fun MindMapCanvas(
 
         if (root != null) {
             drawNodeTree(
-                this, root, mindMap, centerX, centerY, scale, draggingNodeId, dragOffset, hoverTargetId, selectedNodeId,
+                this, root, mindMap, centerX, centerY, scale, draggingNodeId, dragOffset, hoverTargetId, selectedNodeId, highlightedNodeId,
                 textPaint, tagPaint, notePaint, collapsePaint, checkboxPaint, checkMarkPaint, bitmapCache
             )
         }
@@ -279,6 +293,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
     dragOffset: Offset,
     hoverTargetId: String?,
     selectedNodeId: String?,
+    highlightedNodeId: String?,
     textPaint: TextPaint,
     tagPaint: Paint,
     notePaint: Paint,
@@ -304,7 +319,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
                         else RainbowColors[abs(node.id.hashCode()) % RainbowColors.size]
             val path = Path().apply { moveTo(nx, ny); cubicTo(nx, ny + (cy - ny) / 2, cx, cy - (cy - ny) / 2, cx, cy) }
             scope.drawPath(path = path, color = color, style = Stroke(width = 5f * scale))
-            drawNodeTree(scope, child, mindMap, centerX, centerY, scale, draggingNodeId, dragOffset, hoverTargetId, selectedNodeId, textPaint, tagPaint, notePaint, collapsePaint, checkboxPaint, checkMarkPaint, bitmapCache)
+            drawNodeTree(scope, child, mindMap, centerX, centerY, scale, draggingNodeId, dragOffset, hoverTargetId, selectedNodeId, highlightedNodeId, textPaint, tagPaint, notePaint, collapsePaint, checkboxPaint, checkMarkPaint, bitmapCache)
         }
     }
 
@@ -339,6 +354,22 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeTree(
             size = Size(nWidth, nHeight),
             cornerRadius = CornerRadius(16f * scale, 16f * scale),
             style = Stroke(width = 6f * scale)
+        )
+    } else if (highlightedNodeId != null && node.id == highlightedNodeId) {
+        scope.drawRoundRect(
+            color = Color.Yellow,
+            topLeft = Offset(left, top),
+            size = Size(nWidth, nHeight),
+            cornerRadius = CornerRadius(16f * scale, 16f * scale),
+            style = Stroke(width = 8f * scale)
+        )
+    } else if (highlightedNodeId != null) {
+        // Dim the non-highlighted nodes
+        scope.drawRoundRect(
+            color = Color.Black.copy(alpha = 0.5f),
+            topLeft = Offset(left, top),
+            size = Size(nWidth, nHeight),
+            cornerRadius = CornerRadius(16f * scale, 16f * scale)
         )
     }
 
