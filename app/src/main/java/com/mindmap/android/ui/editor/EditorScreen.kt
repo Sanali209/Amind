@@ -73,6 +73,8 @@ fun EditorScreen(
     var selectedCrossLinkId by remember { mutableStateOf<String?>(null) }
     var showCrossLinkEditDialog by remember { mutableStateOf(false) }
     var editCrossLinkLabel by remember { mutableStateOf("") }
+    var editCrossLinkNote by remember { mutableStateOf("") }
+    var editCrossLinkTags by remember { mutableStateOf("") }
     var crossLinkMenuOffset by remember { mutableStateOf(Offset.Zero) }
     var showCrossLinkMenu by remember { mutableStateOf(false) }
 
@@ -461,6 +463,17 @@ fun EditorScreen(
                                     }
                                 }
                             )
+                            DropdownMenuItem(
+                                text = { Text("Free (Manual)") },
+                                onClick = {
+                                    showLayoutMenu = false
+                                    if (mindMap!!.layoutType != "FREE") {
+                                        pushHistory()
+                                        mindMap!!.layoutType = "FREE"
+                                        saveMap()
+                                    }
+                                }
+                            )
                         }
                     }
                     },
@@ -484,6 +497,7 @@ fun EditorScreen(
                 mindMap = mindMap!!,
                 selectedNodeId = menuNodeId,
                 highlightedNodeId = highlightId,
+                selectedCrossLinkId = selectedCrossLinkId,
                 modifier = Modifier.fillMaxSize(),
                 onNodeClick = { nodeId, offset ->
                     if (isSelectingCrosslinkTarget && crosslinkSourceId != null) {
@@ -537,6 +551,15 @@ fun EditorScreen(
                          }
                      }
                 },
+                onNodeMoved = { nodeId, dx, dy ->
+                     val node = mindMap!!.nodes[nodeId]
+                     if (node != null && mindMap!!.layoutType == "FREE") {
+                         pushHistory()
+                         node.x += dx
+                         node.y += dy
+                         saveMap()
+                     }
+                },
                 onToggleCollapse = { nodeId ->
                     val node = mindMap!!.nodes[nodeId]
                     if (node != null) {
@@ -563,6 +586,10 @@ fun EditorScreen(
                     DropdownMenuItem(text = { Text("Add Child") }, onClick = {
                         pushHistory()
                         val newNode = MindMapNode(text = "New Node", parentId = node.id)
+                        if (mindMap!!.layoutType == "FREE") {
+                            newNode.x = node.x + 150f
+                            newNode.y = node.y + 150f
+                        }
                         mindMap!!.nodes[newNode.id] = newNode
                         node.children.add(newNode.id)
                         saveMap()
@@ -637,17 +664,12 @@ fun EditorScreen(
                 val link = mindMap!!.crossLinks.find { it.id == selectedCrossLinkId }
 
                 DropdownMenu(expanded = showCrossLinkMenu, onDismissRequest = { showCrossLinkMenu = false }, offset = dpOffset) {
-                    DropdownMenuItem(text = { Text("Edit Label") }, onClick = {
+                    DropdownMenuItem(text = { Text("Edit Link Details") }, onClick = {
                         editCrossLinkLabel = link?.label ?: ""
+                        editCrossLinkNote = link?.note ?: ""
+                        editCrossLinkTags = link?.tags?.joinToString(", ") ?: ""
                         showCrossLinkEditDialog = true
                         showCrossLinkMenu = false
-                    })
-                    DropdownMenuItem(text = { Text("Edit Note") }, onClick = {
-                         noteEditingId = selectedCrossLinkId
-                         initialNoteContent = link?.note ?: ""
-                         isEditingCrossLinkNote = true
-                         showNoteEditor = true
-                         showCrossLinkMenu = false
                     })
                     DropdownMenuItem(text = { Text("Delete") }, onClick = {
                         pushHistory()
@@ -725,9 +747,15 @@ fun EditorScreen(
             if (showCrossLinkEditDialog) {
                 AlertDialog(
                     onDismissRequest = { showCrossLinkEditDialog = false },
-                    title = { Text("Edit Link Label") },
+                    title = { Text("Edit Link Details") },
                     text = {
-                        OutlinedTextField(value = editCrossLinkLabel, onValueChange = { editCrossLinkLabel = it }, label = { Text("Label") })
+                        Column {
+                            OutlinedTextField(value = editCrossLinkLabel, onValueChange = { editCrossLinkLabel = it }, label = { Text("Label") })
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(value = editCrossLinkNote, onValueChange = { editCrossLinkNote = it }, label = { Text("Note") })
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(value = editCrossLinkTags, onValueChange = { editCrossLinkTags = it }, label = { Text("Tags") })
+                        }
                     },
                     confirmButton = {
                         TextButton(onClick = {
@@ -735,6 +763,11 @@ fun EditorScreen(
                             if (link != null) {
                                 pushHistory()
                                 link.label = editCrossLinkLabel
+                                link.note = editCrossLinkNote
+                                link.tags.clear()
+                                if (editCrossLinkTags.isNotBlank()) {
+                                    link.tags.addAll(editCrossLinkTags.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+                                }
                                 saveMap()
                             }
                             showCrossLinkEditDialog = false

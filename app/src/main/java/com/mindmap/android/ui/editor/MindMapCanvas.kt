@@ -39,11 +39,13 @@ fun MindMapCanvas(
     mindMap: MindMap,
     selectedNodeId: String? = null,
     highlightedNodeId: String? = null,
+    selectedCrossLinkId: String? = null,
     onNodeClick: (String, Offset) -> Unit,
     onNodeLongClick: (String, Offset) -> Unit,
     onBackgroundTap: () -> Unit,
     onCrossLinkClick: (String, Offset) -> Unit,
     onNodeDrop: (String, String) -> Unit,
+    onNodeMoved: ((String, Float, Float) -> Unit)? = null,
     onToggleCollapse: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -194,6 +196,8 @@ fun MindMapCanvas(
                             }
                             if (draggingNodeId != null && hoverTargetId != null) {
                                 onNodeDrop(draggingNodeId!!, hoverTargetId!!)
+                            } else if (moved && draggingNodeId != null && hoverTargetId == null && mindMap.layoutType == "FREE") {
+                                onNodeMoved?.invoke(draggingNodeId!!, dragOffset.x / scale, dragOffset.y / scale)
                             } else if (!moved) {
                                 onNodeClick(hitNodeId, down.position)
                             }
@@ -250,7 +254,11 @@ fun MindMapCanvas(
                 val startPoint = getRectIntersection(sx, sy, ex, ey, start.width * scale, start.height * scale)
                 val endPoint = getRectIntersection(ex, ey, sx, sy, end.width * scale, end.height * scale)
 
-                drawLine(Color.Red, startPoint, endPoint, strokeWidth = 3f * scale)
+                val isSelected = (link.id == selectedCrossLinkId)
+                val linkColor = if (isSelected) Color.Yellow else Color.Red
+                val linkStrokeWidth = if (isSelected) 6f * scale else 3f * scale
+
+                drawLine(linkColor, startPoint, endPoint, strokeWidth = linkStrokeWidth)
                 val angle = atan2(endPoint.y - startPoint.y, endPoint.x - startPoint.x)
                 val arrowSize = 20f * scale
 
@@ -261,7 +269,7 @@ fun MindMapCanvas(
                         lineTo(endPoint.x - arrowSize, endPoint.y + arrowSize / 2)
                         close()
                     }
-                    drawPath(path, Color.Red)
+                    drawPath(path, linkColor)
                 }
 
                 if (!link.label.isNullOrBlank() || !link.note.isNullOrBlank()) {
@@ -272,7 +280,7 @@ fun MindMapCanvas(
 
                      drawIntoCanvas { canvas ->
                         textPaint.textSize = 30f * scale
-                        textPaint.color = android.graphics.Color.RED
+                        textPaint.color = if (isSelected) android.graphics.Color.YELLOW else android.graphics.Color.RED
                         textPaint.textAlign = Paint.Align.CENTER
                         canvas.nativeCanvas.drawText(labelText, mx, my - 10f * scale, textPaint)
                      }

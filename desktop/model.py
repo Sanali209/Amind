@@ -84,12 +84,14 @@ class CrossLink:
                  start_node_id: str = "",
                  end_node_id: str = "",
                  label: str = None,
-                 note: str = None):
+                 note: str = None,
+                 tags: List[str] = None):
         self.id = id if id else str(uuid.uuid4())
         self.start_node_id = start_node_id
         self.end_node_id = end_node_id
         self.label = label
         self.note = note
+        self.tags = tags if tags is not None else []
 
     def to_dict(self):
         return {
@@ -97,7 +99,8 @@ class CrossLink:
             "startNodeId": self.start_node_id,
             "endNodeId": self.end_node_id,
             "label": self.label,
-            "note": self.note
+            "note": self.note,
+            "tags": self.tags
         }
 
     @classmethod
@@ -107,7 +110,8 @@ class CrossLink:
             start_node_id=data.get("startNodeId", ""),
             end_node_id=data.get("endNodeId", ""),
             label=data.get("label"),
-            note=data.get("note")
+            note=data.get("note"),
+            tags=data.get("tags", [])
         )
 
 class MindMap:

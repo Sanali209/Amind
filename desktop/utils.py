@@ -133,7 +133,10 @@ class MindMapLayout:
         for node in mind_map.nodes.values():
             MindMapLayout.calculate_node_size(node, font_metrics)
 
-        if getattr(mind_map, 'layout_type', "RADIAL") == "TREE":
+        layout_type = getattr(mind_map, 'layout_type', "RADIAL")
+        if layout_type == "FREE":
+            return
+        elif layout_type == "TREE":
              MindMapLayout.layout_tree(mind_map)
         else:
              # Radial Layout

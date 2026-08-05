@@ -31,7 +31,11 @@ object MindMapLayout {
             calculateNodeSize(node, textPaint, tagPaint)
         }
 
-        if (mindMap.layoutType == "TREE") {
+        if (mindMap.layoutType == "FREE") {
+            // Free layout: nodes retain their explicitly set x and y coordinates.
+            // We just skip automated positioning, but sizes are still recalculated.
+            return
+        } else if (mindMap.layoutType == "TREE") {
             layoutTree(mindMap)
         } else {
             // Radial Layout

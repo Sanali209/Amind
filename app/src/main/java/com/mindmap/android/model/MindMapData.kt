@@ -27,7 +27,8 @@ data class CrossLink(
     val startNodeId: String,
     val endNodeId: String,
     var label: String? = null,
-    var note: String? = null
+    var note: String? = null,
+    val tags: MutableList<String> = mutableListOf()
 )
 
 data class MindMap(
