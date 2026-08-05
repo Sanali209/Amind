@@ -11,11 +11,17 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -54,6 +60,12 @@ fun EditorScreen(
 
     // UI States
     var showShareMenu by remember { mutableStateOf(false) }
+
+    // Search State
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<String>>(emptyList()) }
+    var currentSearchIndex by remember { mutableStateOf(0) }
     var isSelectingCrosslinkTarget by remember { mutableStateOf(false) }
     var crosslinkSourceId by remember { mutableStateOf<String?>(null) }
 
@@ -167,6 +179,43 @@ fun EditorScreen(
     }
 
     // Helper functions (Restored)
+    fun performSearch(query: String) {
+        if (query.isBlank() || mindMap == null) {
+            searchResults = emptyList()
+            currentSearchIndex = 0
+            return
+        }
+        val lowerQuery = query.lowercase()
+        val results = mindMap!!.nodes.values.filter { node ->
+            node.text.lowercase().contains(lowerQuery) ||
+            (node.note?.lowercase()?.contains(lowerQuery) == true) ||
+            node.tags.any { it.lowercase().contains(lowerQuery) }
+        }.map { it.id }
+        searchResults = results
+        currentSearchIndex = 0
+
+        // Expand parents of all results
+        var changed = false
+        results.forEach { nodeId ->
+            var curr = mindMap!!.nodes[nodeId]
+            while (curr?.parentId != null) {
+                val parent = mindMap!!.nodes[curr.parentId]
+                if (parent != null && parent.isCollapsed) {
+                    parent.isCollapsed = false
+                    changed = true
+                }
+                curr = parent
+            }
+        }
+        if (changed) {
+            saveMap()
+        }
+    }
+
+    LaunchedEffect(searchQuery) {
+        performSearch(searchQuery)
+    }
+
     fun isDescendant(mindMap: MindMap, nodeId: String, potentialDescendantId: String): Boolean {
         if (nodeId == potentialDescendantId) return true
         val node = mindMap.nodes[nodeId] ?: return false
@@ -283,15 +332,63 @@ fun EditorScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+            if (isSearchActive) {
+                TopAppBar(
+                    title = {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search nodes, notes, tags...") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(Icons.Default.Clear, contentDescription = "Clear")
+                                    }
+                                }
+                            }
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            isSearchActive = false
+                            searchQuery = ""
+                        }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        if (searchResults.isNotEmpty()) {
+                            Text("${currentSearchIndex + 1}/${searchResults.size}")
+                            IconButton(
+                                onClick = { if (currentSearchIndex > 0) currentSearchIndex-- },
+                                enabled = currentSearchIndex > 0
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Previous")
+                            }
+                            IconButton(
+                                onClick = { if (currentSearchIndex < searchResults.size - 1) currentSearchIndex++ },
+                                enabled = currentSearchIndex < searchResults.size - 1
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next")
+                            }
+                        }
                     }
-                },
-                actions = {
-                    IconButton(onClick = {
+                )
+            } else {
+                TopAppBar(
+                    title = {},
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { isSearchActive = true }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
+                        IconButton(onClick = {
                         if (undoStack.isNotEmpty()) {
                             mindMap?.let { redoStack.push(gson.toJson(it)) }
                             val json = undoStack.pop()
@@ -366,12 +463,13 @@ fun EditorScreen(
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        titleContentColor = MaterialTheme.colorScheme.onBackground
+                    )
                 )
-            )
+            }
         }
     ) { padding ->
         Box(
@@ -380,9 +478,12 @@ fun EditorScreen(
                 .padding(padding)
                 .background(Color(0xFF121212))
         ) {
+            val highlightId = if (searchResults.isNotEmpty() && currentSearchIndex < searchResults.size) searchResults[currentSearchIndex] else null
+
             MindMapCanvas(
                 mindMap = mindMap!!,
                 selectedNodeId = menuNodeId,
+                highlightedNodeId = highlightId,
                 modifier = Modifier.fillMaxSize(),
                 onNodeClick = { nodeId, offset ->
                     if (isSelectingCrosslinkTarget && crosslinkSourceId != null) {
@@ -567,6 +668,35 @@ fun EditorScreen(
                             OutlinedTextField(value = editText, onValueChange = { editText = it }, label = { Text("Text") })
                             Spacer(Modifier.height(8.dp))
                             OutlinedTextField(value = editTags, onValueChange = { editTags = it }, label = { Text("Tags") })
+
+                            // Tag suggestions
+                            val allTags = remember(mindMap) {
+                                mindMap?.nodes?.values?.flatMap { it.tags }?.toSet()?.toList()?.sorted() ?: emptyList()
+                            }
+                            if (allTags.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("Suggestions:", style = MaterialTheme.typography.labelSmall)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    allTags.forEach { tag ->
+                                        AssistChip(
+                                            onClick = {
+                                                val currentTags = editTags.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+                                                if (!currentTags.contains(tag)) {
+                                                    currentTags.add(tag)
+                                                    editTags = currentTags.joinToString(", ")
+                                                }
+                                            },
+                                            label = { Text(tag) }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     },
                     confirmButton = {
